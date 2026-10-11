@@ -1,0 +1,17 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+data/
+*.log
+.env
+.env.*
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.pem
+*.key
+*.p12
+*.pfx
+coverage/
