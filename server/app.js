@@ -54,6 +54,9 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
   next();
  });
  app.use('/api',(_req,res,next)=>{res.setHeader('Cache-Control','no-store');next();});
+ // Global abuse guard: generous for SPA polling, strict limits stay on login/import.
+ // In-memory store is enough for single-instance free tier; shared Redis needed if scaled.
+ app.use('/api',rateLimit({windowMs:15*60*1000,limit:300,standardHeaders:'draft-7',legacyHeaders:false,message:{error:'Muitas requisições. Aguarde alguns minutos.'}}));
  app.use(express.json({limit:'64kb'}));
  const authReady=installAuth(app,db,config);
  const ready=Promise.all([db.ready,authReady]);

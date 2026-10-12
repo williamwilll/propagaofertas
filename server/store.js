@@ -7,8 +7,12 @@ const schema = [
  'CREATE TABLE IF NOT EXISTS flows (id TEXT PRIMARY KEY, data TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL)',
  'CREATE TABLE IF NOT EXISTS offers (id TEXT PRIMARY KEY, data TEXT NOT NULL, created_at TEXT NOT NULL)',
  'CREATE TABLE IF NOT EXISTS sessions (session_key TEXT PRIMARY KEY, expires_at TEXT NOT NULL, owner_key TEXT NOT NULL)',
- 'CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions (expires_at)'
+ 'CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions (expires_at)',
+ 'CREATE INDEX IF NOT EXISTS flows_created ON flows (created_at DESC)',
+ 'CREATE INDEX IF NOT EXISTS offers_created ON offers (created_at DESC)'
 ];
+const MAX_LIST = 200;
+const clampLimit = value => Number.isInteger(value) && value > 0 ? Math.min(value, MAX_LIST) : MAX_LIST;
 const tableName = name => {if(!['flows','offers'].includes(name))throw new Error('Tabela inválida');return name;};
 function repository(query,close,kind){
  const ready=(async()=>{for(const statement of schema)await query(statement);})();
@@ -17,7 +21,7 @@ function repository(query,close,kind){
  return {
   ready,kind,query:run,close,
   async ping(){await run('SELECT 1');},
-  async list(table){return (await run(`SELECT * FROM ${tableName(table)} ORDER BY created_at DESC`)).rows.map(unpack);},
+  async list(table, limit){return (await run(`SELECT * FROM ${tableName(table)} ORDER BY created_at DESC LIMIT ?`,[clampLimit(limit)])).rows.map(unpack);},
   async get(table,id){return unpack((await run(`SELECT * FROM ${tableName(table)} WHERE id=?`,[id])).rows[0]);},
   async insert(table,id,data,created){
    if(tableName(table)==='flows')await run('INSERT INTO flows (id,data,status,created_at) VALUES (?,?,?,?)',[id,JSON.stringify(data),'draft',created]);
