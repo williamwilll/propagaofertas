@@ -7,7 +7,7 @@ export class ProductError extends Error{
  constructor(code,message,status=422){super(message);this.code=code;this.status=status;}
 }
 export function validateProductUrl(value){
- if(typeof value!=='string'||value.length>2000||!supportedProductUrl(value))throw new ProductError('UNSUPPORTED_LINK','Use um link HTTPS da Amazon, Shopee ou Mercado Livre. Outras lojas podem ser cadastradas manualmente.',400);
+ if(typeof value!=='string'||value.length>2000||!supportedProductUrl(value))throw new ProductError('UNSUPPORTED_LINK','Use um link HTTPS da Amazon, Shopee, Mercado Livre, TikTok, AliExpress, Magalu, SHEIN, Banggood ou KaBuM. Outras lojas podem ser cadastradas manualmente.',400);
  return new URL(value);
 }
 export function isPublicAddress(address){

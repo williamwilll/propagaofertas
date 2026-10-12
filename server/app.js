@@ -130,6 +130,9 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
   const depth=await db.queueDepth().catch(()=>0);
   res.json({configured:!!(config.whatsappToken&&config.whatsappPhoneNumberId),verified:!!connection?.verified,queueDepth:depth});
  });
+ app.get('/api/integrations/shopee-status',async(_req,res)=>{
+  res.json({configured:!!(process.env.SHOPEE_APP_ID&&process.env.SHOPEE_APP_SECRET)});
+ });
  app.post('/api/whatsapp/connect',async(req,res)=>{
   const result=z.object({phoneNumberId:z.string().trim().min(1).max(64)}).strict().safeParse(req.body);
   if(!result.success)return res.status(400).json({error:'Informe o ID do número.'});
