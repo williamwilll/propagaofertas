@@ -7,6 +7,10 @@ import {inspectFlow} from '../shared/workflow.js';
 import {createSqliteStore,createPostgresStore} from './store.js';
 import {installAuth} from './auth.js';
 import {validateProduction} from './config.js';
+import {rateLimit} from 'express-rate-limit';
+import {importProduct} from './product-import.js';
+import {ProductError} from './product-fetch.js';
+import {allowedImageUrl,imageDomains} from '../shared/product-policy.js';
 
 const text=z.string().trim().max(300);
 const time=z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
@@ -21,7 +25,8 @@ const flowSchema=z.object({
 const offerSchema=z.object({
  title:text.min(1),price:z.number().positive().max(10000000),
  url:z.string().trim().max(2000).url().refine(v=>{try{const u=new URL(v);return u.protocol==='https:'&&!u.username&&!u.password;}catch{return false;}},'Use um link HTTPS sem credenciais.'),
- description:z.string().trim().max(2000)
+ description:z.string().trim().max(2000),
+ imageUrl:z.string().max(2000).refine(v=>v===''||allowedImageUrl(v),'Imagem de origem não permitida.').optional().default('')
 }).strict();
 
 export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
@@ -33,7 +38,7 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
  const db=options.store||(config.databaseUrl?createPostgresStore(config.databaseUrl):createSqliteStore(dbPath));
  const app=express();app.disable('x-powered-by');
  if(config.production)app.set('trust proxy',1);
- app.use(helmet({strictTransportSecurity:config.production?undefined:false,contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'",'https://fonts.googleapis.com'],fontSrc:["'self'",'https://fonts.gstatic.com'],imgSrc:["'self'",'data:'],connectSrc:["'self'"],frameAncestors:["'none'"],upgradeInsecureRequests:config.production?[]:null}}}));
+ app.use(helmet({strictTransportSecurity:config.production?undefined:false,contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'",'https://fonts.googleapis.com'],fontSrc:["'self'",'https://fonts.gstatic.com'],imgSrc:["'self'",'data:',...imageDomains.flatMap(d=>['https://'+d,'https://*.'+d])],connectSrc:["'self'"],frameAncestors:["'none'"],upgradeInsecureRequests:config.production?[]:null}}}));
  // Health probes must not repeatedly wake the free Neon compute.
  app.get('/healthz',async(_req,res)=>{try{await db.ready;res.json({ok:true});}catch{res.status(503).json({ok:false});}});
  const origin=config.production?new URL(config.appOrigin).origin:null;
@@ -53,6 +58,17 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
  const authReady=installAuth(app,db,config);
  const ready=Promise.all([db.ready,authReady]);
  app.get('/api/state',async(_req,res)=>res.json({flows:await db.list('flows'),offers:await db.list('offers'),integrationsReady:false}));
+ let activeImports=0;
+ const importLimit=rateLimit({windowMs:60000,limit:10,standardHeaders:'draft-7',legacyHeaders:false,message:{error:'Aguarde um minuto antes de buscar mais produtos.'}});
+ app.post('/api/offers/import',importLimit,async(req,res)=>{
+  const result=z.object({url:z.string().trim().min(1).max(2000)}).strict().safeParse(req.body);
+  if(!result.success)return res.status(400).json({error:'Informe somente o link do produto.'});
+  if(activeImports>=2)return res.status(429).json({error:'Já existem buscas em andamento. Aguarde e tente novamente.'});
+  activeImports++;
+  try{res.json(await (options.productImporter||importProduct)(result.data.url));}
+  catch(error){if(error instanceof ProductError)return res.status(error.status).json({error:error.message,code:error.code});res.status(502).json({error:'A loja não respondeu à leitura. Você pode cadastrar o produto manualmente.'});}
+  finally{activeImports--;}
+ });
  for(const [table,schema] of [['flows',flowSchema],['offers',offerSchema]]){
   app.post(`/api/${table}`,async(req,res)=>{
    const result=schema.safeParse(req.body);
