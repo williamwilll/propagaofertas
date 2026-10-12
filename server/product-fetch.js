@@ -23,7 +23,7 @@ function download(url,addresses,signal){
  return new Promise((resolve,reject)=>{
   const req=request(url,{method:'GET',agent:false,signal,lookup:(_host,options,callback)=>{
    if(options.all)callback(null,addresses);else callback(null,addresses[0].address,addresses[0].family);
-  },headers:{'User-Agent':'OfertaZap/1.0 (public product metadata preview)','Accept':'text/html,application/xhtml+xml','Accept-Language':'pt-BR,pt;q=0.9','Accept-Encoding':'identity'}},res=>{
+  },headers:{'User-Agent':'PropagaOfertas/1.0 (public product metadata preview)','Accept':'text/html,application/xhtml+xml','Accept-Language':'pt-BR,pt;q=0.9','Accept-Encoding':'identity'}},res=>{
    const status=res.statusCode||0;
    if([301,302,303,307,308].includes(status)){res.destroy();resolve({status,location:res.headers.location});return;}
    if(status<200||status>=300){res.destroy();reject(new ProductError('STORE_BLOCKED','A loja recusou a leitura ou o produto está indisponível. Preencha os dados manualmente.'));return;}

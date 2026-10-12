@@ -9,7 +9,7 @@ if not exist dist\index.html (
   if errorlevel 1 goto erro
 )
 echo Abra http://127.0.0.1:3001 no navegador.
-echo Mantenha esta janela aberta enquanto usar o OfertaZap.
+echo Mantenha esta janela aberta enquanto usar o PropagaOfertas.
 call npm start
 pause
 exit /b

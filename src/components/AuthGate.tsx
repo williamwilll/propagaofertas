@@ -20,8 +20,8 @@ export function AuthGate({children}:AuthGateProps){
  useEffect(()=>{
   void check();
   const expired=()=>{setSession(s=>s?{...s,authenticated:false,email:null}:s);setPassword('');setError('Sua sessão expirou. Entre novamente. Alterações não salvas precisam ser refeitas.');};
-  window.addEventListener('ofertazap:session-expired',expired);
-  return ()=>window.removeEventListener('ofertazap:session-expired',expired);
+  window.addEventListener('propagaofertas:session-expired',expired);
+  return ()=>window.removeEventListener('propagaofertas:session-expired',expired);
  },[]);
  const logout=async()=>{
   const response=await fetch('/api/auth/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
@@ -31,7 +31,7 @@ export function AuthGate({children}:AuthGateProps){
  if(session?.authenticated&&!loading)return children(session,logout);
  return <main className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-5 py-10">
   <section className="w-full max-w-[440px] space-y-7 rounded-xl border border-[var(--border)] bg-[var(--white)] p-6 sm:p-9">
-   <div className="flex items-center gap-2 text-[25px] font-bold"><MessageSquare className="text-[var(--green)]"/>ofertaZap</div>
+   <div className="flex items-center gap-2 text-[25px] font-bold"><MessageSquare className="text-[var(--green)]"/>PropagaOfertas</div>
    <div><div className="mb-4 flex h-11 w-11 items-center justify-center rounded-lg bg-[var(--soft)]"><LockKeyhole size={22}/></div><h1 className="text-2xl font-bold">Seu workspace, protegido.</h1><p className="mt-2 text-sm leading-6 text-[var(--muted)]">Entre com a conta de administrador para gerenciar suas ofertas e fluxos.</p></div>
    {error&&<p role="alert" className="rounded-lg bg-[var(--warning)] p-3 text-xs leading-6 text-[var(--amber)]">{error}</p>}
    {loading?<p role="status" className="text-sm text-[var(--muted)]">Verificando acesso…</p>:!session?<button onClick={()=>void check()} className="w-full rounded-md bg-[var(--green)] p-3 text-sm font-semibold text-[var(--white)]">Tentar novamente</button>:<form className="space-y-5" onSubmit={async e=>{
@@ -42,7 +42,7 @@ export function AuthGate({children}:AuthGateProps){
    }}>
     <label className="flex flex-col gap-2 text-xs font-semibold">E-mail do administrador<input autoFocus type="email" required maxLength={254} autoComplete="username" className={control} value={email} onChange={e=>setEmail(e.target.value)}/></label>
     <label className="flex flex-col gap-2 text-xs font-semibold">Senha<input type="password" required maxLength={256} autoComplete="current-password" className={control} value={password} onChange={e=>setPassword(e.target.value)}/></label>
-    <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-md bg-[var(--green)] p-3 text-sm font-semibold text-[var(--white)] disabled:opacity-50">{busy?'Entrando…':'Entrar no OfertaZap'}<ArrowRight size={16}/></button>
+    <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-md bg-[var(--green)] p-3 text-sm font-semibold text-[var(--white)] disabled:opacity-50">{busy?'Entrando…':'Entrar no PropagaOfertas'}<ArrowRight size={16}/></button>
    </form>}
    <div className="flex items-start gap-2 border-t border-[var(--border)] pt-5 text-xs leading-6 text-[var(--muted)]"><ShieldCheck size={17} className="mt-1 shrink-0"/><p>Acesso privado, sem cadastro público. O administrador configura as credenciais no servidor.</p></div>
   </section>

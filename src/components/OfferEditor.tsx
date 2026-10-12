@@ -48,7 +48,7 @@ export function OfferEditor({initial,editing,onClose,onSave}:OfferEditorProps){
   const timer=setTimeout(async()=>{
    try{
     const response=await fetch('/api/offers/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url}),signal:controller.signal});
-    if(response.status===401){window.dispatchEvent(new Event('ofertazap:session-expired'));return;}
+    if(response.status===401){window.dispatchEvent(new Event('propagaofertas:session-expired'));return;}
     const result=await response.json();
     if(!response.ok)throw new Error(result.error||'Não foi possível buscar o produto.');
     if(controller.signal.aborted||generation.current!==version)return;

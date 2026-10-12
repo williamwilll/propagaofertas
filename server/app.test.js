@@ -29,7 +29,7 @@ test('CRUD de ofertas, validação de links e isolamento de origem',async()=>{
  }finally{await ctx.close();}
 });
 test('rascunho persiste após reabrir o banco e não pode ser ativado',async()=>{
- const dir=mkdtempSync(join(tmpdir(),'ofertazap-'));let ctx=await setup(join(dir,'test.sqlite'));
+ const dir=mkdtempSync(join(tmpdir(),'propagaofertas-'));let ctx=await setup(join(dir,'test.sqlite'));
  try{
  assert.equal((await ctx.request('/flows','POST',{...flow,start:'19:00'})).status,400);
  assert.equal((await ctx.request('/flows','POST',{...flow,status:'active'})).status,400);

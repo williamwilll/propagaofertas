@@ -18,7 +18,7 @@ async function mockAuth(page){
 async function login(page){
  await page.getByLabel('E-mail do administrador').fill('owner@example.test');
  await page.getByLabel('Senha',{exact:true}).fill('test-password-for-ui-only');
- await page.getByRole('button',{name:'Entrar no OfertaZap'}).click();
+ await page.getByRole('button',{name:'Entrar no PropagaOfertas'}).click();
  await expect(page.getByRole('heading',{name:'Seu centro de distribuição'})).toBeVisible();
 }
 
@@ -28,7 +28,7 @@ test('login privado, erro de credenciais e logout limpam o workspace',async({pag
  await page.screenshot({path:'test-results/login-desktop.png'});
  await page.getByLabel('E-mail do administrador').fill('owner@example.test');
  await page.getByLabel('Senha',{exact:true}).fill('wrong-password');
- await page.getByRole('button',{name:'Entrar no OfertaZap'}).click();
+ await page.getByRole('button',{name:'Entrar no PropagaOfertas'}).click();
  await expect(page.getByRole('alert')).toContainText('E-mail ou senha incorretos.');
  await expect(page.getByLabel('Senha',{exact:true})).toHaveValue('');
  await login(page);await expect(page.getByText('Dados reais salvos no PostgreSQL. Nenhum envio realizado.')).toBeVisible();

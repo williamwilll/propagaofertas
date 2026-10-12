@@ -1,5 +1,7 @@
 services:
   - type: web
+    # PropagaOfertas: preserve the existing Blueprint resource identity.
+    # Renaming this key could provision another service instead of updating it.
     name: zapofertas
     runtime: node
     plan: free

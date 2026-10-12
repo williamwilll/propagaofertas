@@ -7,14 +7,14 @@ import {createSqliteStore,createPostgresStore} from './store.js';
 import {loadConfig} from './config.js';
 
 const credentials={email:'owner@example.test',password:'Testing-only-not-a-real-password-123'};
-const production={production:true,appOrigin:'https://zapofertas.example.test',adminEmail:credentials.email,adminPassword:credentials.password};
+const production={production:true,appOrigin:'https://propagaofertas.example.test',adminEmail:credentials.email,adminPassword:credentials.password};
 async function setup(options={}){
  const store=options.store||createSqliteStore(':memory:');
  const {app,ready}=createApp(':memory:',{...production,...options,store});await ready;
  const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});
  const request=async(path,method='GET',body,cookie,headers={})=>{
   return new Promise((resolve,reject)=>{
-   const req=httpRequest({hostname:'127.0.0.1',port:server.address().port,path,method,headers:{Host:'zapofertas.example.test','X-Forwarded-Proto':'https',Origin:production.appOrigin,...(body?{'Content-Type':'application/json'}:{}),...(cookie?{Cookie:cookie}:{}),...headers}},res=>{
+   const req=httpRequest({hostname:'127.0.0.1',port:server.address().port,path,method,headers:{Host:'propagaofertas.example.test','X-Forwarded-Proto':'https',Origin:production.appOrigin,...(body?{'Content-Type':'application/json'}:{}),...(cookie?{Cookie:cookie}:{}),...headers}},res=>{
     let text='';res.setEncoding('utf8');res.on('data',part=>{text+=part;});res.on('end',()=>{
      try{const h=new Headers();for(const [key,value] of Object.entries(res.headers))if(value)h.set(key,Array.isArray(value)?value.join(','):value);resolve({status:res.statusCode,data:JSON.parse(text),headers:h,cookie:h.get('set-cookie')?.split(';')[0]});}catch(error){reject(error);}
     });
