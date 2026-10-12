@@ -9,7 +9,12 @@ const schema = [
  'CREATE TABLE IF NOT EXISTS sessions (session_key TEXT PRIMARY KEY, expires_at TEXT NOT NULL, owner_key TEXT NOT NULL)',
  'CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions (expires_at)',
  'CREATE INDEX IF NOT EXISTS flows_created ON flows (created_at DESC)',
- 'CREATE INDEX IF NOT EXISTS offers_created ON offers (created_at DESC)'
+ 'CREATE INDEX IF NOT EXISTS offers_created ON offers (created_at DESC)',
+ 'CREATE TABLE IF NOT EXISTS whatsapp_connections (id TEXT PRIMARY KEY, data TEXT NOT NULL, created_at TEXT NOT NULL)',
+ 'CREATE TABLE IF NOT EXISTS whatsapp_messages (remote_id TEXT PRIMARY KEY, data TEXT NOT NULL, created_at TEXT NOT NULL)',
+ 'CREATE TABLE IF NOT EXISTS send_queue (id TEXT PRIMARY KEY, flow_id TEXT NOT NULL, offer_id TEXT, destino TEXT NOT NULL, status TEXT NOT NULL, scheduled_for TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at TEXT NOT NULL)',
+ 'CREATE INDEX IF NOT EXISTS send_queue_due ON send_queue (status, scheduled_for)',
+ 'CREATE INDEX IF NOT EXISTS send_queue_flow ON send_queue (flow_id)'
 ];
 const MAX_LIST = 200;
 const clampLimit = value => Number.isInteger(value) && value > 0 ? Math.min(value, MAX_LIST) : MAX_LIST;
@@ -28,7 +33,14 @@ function repository(query,close,kind){
    else await run('INSERT INTO offers (id,data,created_at) VALUES (?,?,?)',[id,JSON.stringify(data),created]);
   },
   async update(table,id,data){return (await run(`UPDATE ${tableName(table)} SET data=? WHERE id=?`,[JSON.stringify(data),id])).rowCount;},
-  async remove(table,id){return (await run(`DELETE FROM ${tableName(table)} WHERE id=?`,[id])).rowCount;}
+  async remove(table,id){return (await run(`DELETE FROM ${tableName(table)} WHERE id=?`,[id])).rowCount;},
+  async getConnection(){const row=(await run('SELECT * FROM whatsapp_connections WHERE id=?',['default'])).rows[0];return row?{...JSON.parse(row.data),created_at:row.created_at}:null;},
+  async saveConnection(data){const created=new Date().toISOString();await run('INSERT INTO whatsapp_connections (id,data,created_at) VALUES (?,?,?) ON CONFLICT (id) DO UPDATE SET data=excluded.data',['default',JSON.stringify(data),created]);},
+  async recordInbound(remoteId,data){try{await run('INSERT INTO whatsapp_messages (remote_id,data,created_at) VALUES (?,?,?)',[remoteId,JSON.stringify(data),new Date().toISOString()]);return {duplicate:false};}catch(error){const code=String(error?.code||'')+String(error?.message||'');if(/23505|UNIQUE|CONSTRAINT|duplicate/i.test(code))return {duplicate:true};throw error;}},
+  async enqueueSend(job){await run('INSERT INTO send_queue (id,flow_id,offer_id,destino,status,scheduled_for,attempts,created_at) VALUES (?,?,?,?,?,?,?,?)',[job.id,job.flowId,job.offerId||null,job.destino,'pending',job.scheduledFor,0,new Date().toISOString()]);},
+  async listDueQueue(now,limit=10){return (await run('SELECT * FROM send_queue WHERE status=? AND scheduled_for<=? ORDER BY scheduled_for ASC LIMIT ?',['pending',now,clampLimit(limit)])).rows;},
+  async markQueue(id,status,attempts,lastError){return (await run('UPDATE send_queue SET status=?,attempts=?,last_error=? WHERE id=?',[status,attempts,lastError||null,id])).rowCount;},
+  async queueDepth(){const row=(await run("SELECT COUNT(*) AS total FROM send_queue WHERE status='pending'")).rows[0];return Number(row?.total||row?.count||0);}
  };
 }
 export function createSqliteStore(path){

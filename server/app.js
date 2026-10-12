@@ -10,6 +10,7 @@ import {validateProduction} from './config.js';
 import {rateLimit} from 'express-rate-limit';
 import {importProduct} from './product-import.js';
 import {ProductError} from './product-fetch.js';
+import {verifySignature,parseWebhookPayload,isStale,processDueQueue,createGraphSender} from './whatsapp.js';
 import {allowedImageUrl,imageDomains} from '../shared/product-policy.js';
 
 const text=z.string().trim().max(300);
@@ -56,8 +57,31 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
  app.use('/api',(_req,res,next)=>{res.setHeader('Cache-Control','no-store');next();});
  // Global abuse guard: generous for SPA polling, strict limits stay on login/import.
  // In-memory store is enough for single-instance free tier; shared Redis needed if scaled.
- app.use('/api',rateLimit({windowMs:15*60*1000,limit:300,standardHeaders:'draft-7',legacyHeaders:false,message:{error:'Muitas requisições. Aguarde alguns minutos.'}}));
- app.use(express.json({limit:'64kb'}));
+ // Webhook Meta tem retry próprio — não limitar aqui, a proteção é a assinatura HMAC.
+ app.use('/api',rateLimit({windowMs:15*60*1000,limit:300,standardHeaders:'draft-7',legacyHeaders:false,skip:req=>req.path==='/api/whatsapp/webhook',message:{error:'Muitas requisições. Aguarde alguns minutos.'}}));
+ app.use(express.json({limit:'64kb',verify:(req,_res,buf)=>{req.rawBody=buf;}}));
+ // Webhook Meta é público (sem sessão) e precisa responder <3s. Montado antes do auth.
+ app.get('/api/whatsapp/webhook',(req,res)=>{
+  const mode=req.query['hub.mode'],token=req.query['hub.verify_token'],challenge=req.query['hub.challenge'];
+  if(mode==='subscribe'&&token&&token===config.whatsappVerifyToken&&typeof challenge==='string')return res.send(challenge);
+  return res.status(403).json({error:'Verificação inválida.'});
+ });
+ app.post('/api/whatsapp/webhook',async(req,res)=>{
+  try{
+   const raw=req.rawBody||Buffer.from(JSON.stringify(req.body||{}));
+   if(config.whatsappAppSecret&&!verifySignature(raw,req.headers['x-hub-signature-256'],config.whatsappAppSecret))return res.status(401).json({error:'Assinatura inválida.'});
+   const payload=req.body;
+   if(payload?.object!=='whatsapp_business_account')return res.json({ok:true,ignored:true});
+   const {messages}=parseWebhookPayload(payload);
+   for(const m of messages){
+    if(!m.remoteId)continue;
+    const stored=await db.recordInbound(m.remoteId,{from:m.from,type:m.type,at:new Date(m.timestampMs).toISOString()});
+    if(stored.duplicate)continue;
+    if(isStale(m.timestampMs))continue;
+   }
+   res.json({ok:true,received:messages.length});
+  }catch{res.status(503).json({error:'Fila indisponível. A Meta tentará novamente.'});}
+ });
  const authReady=installAuth(app,db,config);
  const ready=Promise.all([db.ready,authReady]);
  app.get('/api/state',async(_req,res)=>res.json({flows:await db.list('flows'),offers:await db.list('offers'),integrationsReady:false}));
@@ -92,12 +116,31 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
  app.get('/api/flows/:id/check',async(req,res)=>{
   const flow=await db.get('flows',req.params.id);
   if(!flow)return res.status(404).json({error:'Fluxo não encontrado.'});
-  res.json(inspectFlow(flow));
+  const connection=await db.getConnection().catch(()=>null);
+  res.json(inspectFlow(flow,{whatsapp:!!connection?.verified}));
  });
  app.post('/api/flows/:id/activate',async(req,res)=>{
   const flow=await db.get('flows',req.params.id);
   if(!flow)return res.status(404).json({error:'Fluxo não encontrado.'});
-  res.status(409).json({error:'Ativação bloqueada: confira as pendências do fluxo.',...inspectFlow(flow)});
+  const connection=await db.getConnection().catch(()=>null);
+  res.status(409).json({error:'Ativação bloqueada: confira as pendências do fluxo.',...inspectFlow(flow,{whatsapp:!!connection?.verified})});
+ });
+ app.get('/api/whatsapp/status',async(_req,res)=>{
+  const connection=await db.getConnection().catch(()=>null);
+  const depth=await db.queueDepth().catch(()=>0);
+  res.json({configured:!!(config.whatsappToken&&config.whatsappPhoneNumberId),verified:!!connection?.verified,queueDepth:depth});
+ });
+ app.post('/api/whatsapp/connect',async(req,res)=>{
+  const result=z.object({phoneNumberId:z.string().trim().min(1).max(64)}).strict().safeParse(req.body);
+  if(!result.success)return res.status(400).json({error:'Informe o ID do número.'});
+  if(!(config.whatsappToken&&config.whatsappPhoneNumberId))return res.status(409).json({error:'Configure WHATSAPP_TOKEN e WHATSAPP_PHONE_NUMBER_ID no servidor.'});
+  await db.saveConnection({phoneNumberId:result.data.phoneNumberId,verified:true});
+  res.json({ok:true});
+ });
+ app.post('/api/queue/process',async(_req,res)=>{
+  if(!(config.whatsappToken&&config.whatsappPhoneNumberId))return res.status(409).json({error:'WhatsApp não configurado.'});
+  const sender=options.whatsappSender||createGraphSender({token:config.whatsappToken,phoneNumberId:config.whatsappPhoneNumberId});
+  res.json(await processDueQueue(db,sender,{now:new Date().toISOString(),limit:10}));
  });
  app.use('/api',(_req,res)=>res.status(404).json({error:'Operação não encontrada.'}));
  app.use(express.static(resolve('dist'),{setHeaders(res,path){if(path.endsWith('index.html'))res.setHeader('Cache-Control','no-cache');}}));
