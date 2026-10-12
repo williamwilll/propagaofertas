@@ -1,3 +1,5 @@
+import {validateDatabaseUrl} from './database-diagnostics.js';
+
 export function loadConfig(env=process.env){
  const production=env.NODE_ENV==='production'||env.RENDER==='true';
  const port=Number(env.PORT||3001);
@@ -5,8 +7,7 @@ export function loadConfig(env=process.env){
  const config={production,port,host:production?'0.0.0.0':'127.0.0.1',databaseUrl:env.DATABASE_URL,appOrigin:env.APP_ORIGIN||env.RENDER_EXTERNAL_URL,adminEmail:env.ADMIN_EMAIL?.trim().toLowerCase(),adminPassword:env.ADMIN_PASSWORD};
  if(production){
   if(!config.databaseUrl)throw new Error('Configure DATABASE_URL no Render. SQLite não é permitido em produção.');
-  const database=new URL(config.databaseUrl);
-  if(!['postgres:','postgresql:'].includes(database.protocol))throw new Error('DATABASE_URL deve ser PostgreSQL.');
+  config.databaseUrl=validateDatabaseUrl(config.databaseUrl);
   validateProduction(config);
  }
  return config;
