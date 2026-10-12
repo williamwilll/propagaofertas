@@ -12,6 +12,7 @@ import {importProduct} from './product-import.js';
 import {ProductError} from './product-fetch.js';
 import {verifySignature,parseWebhookPayload,isStale,processDueQueue,createGraphSender,enqueueFlowSends} from './whatsapp.js';
 import {createBaileysProvider} from './whatsapp-baileys.js';
+import {PLATFORMS,integrationsStatus,testPlatform} from './affiliates.js';
 import {composeOffer} from '../shared/workflow.js';
 import {allowedImageUrl,imageDomains} from '../shared/product-policy.js';
 
@@ -193,8 +194,19 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
   try{baileysStatus=baileys.status();}catch{}
   res.json({configured:!!(config.whatsappToken&&config.whatsappPhoneNumberId)||!!baileysStatus?.connected,verified:!!connection?.verified,baileys:baileysStatus?{connected:baileysStatus.connected,me:baileysStatus.me,hasQR:baileysStatus.hasQR,needsRepair:baileysStatus.needsRepair,lastError:baileysStatus.lastError}:null,queueDepth:depth});
  });
- app.get('/api/integrations/shopee-status',async(_req,res)=>{
-  res.json({configured:!!(process.env.SHOPEE_APP_ID&&process.env.SHOPEE_APP_SECRET)});
+ app.get('/api/integrations/status',async(_req,res)=>{
+  const offers=await db.list('offers',200).catch(()=>[]);
+  res.json(integrationsStatus(process.env,offers));
+ });
+ app.post('/api/integrations/:platform/test',async(req,res)=>{
+  const platform=String(req.params.platform||'');
+  if(!PLATFORMS.includes(platform))return res.status(404).json({error:'Plataforma desconhecida.'});
+  const offers=await db.list('offers',200).catch(()=>[]);
+  try{
+   const r=await testPlatform(platform,offers,{fetchImpl:options.affiliatesFetch||fetch,env:process.env});
+   if(r.error)return res.status(r.status||422).json({error:r.error,code:r.code});
+   res.json(r);
+  }catch{res.status(502).json({error:'A plataforma não respondeu. Tente novamente.'});}
  });
  app.post('/api/whatsapp/connect',async(req,res)=>{
   const result=z.object({phoneNumberId:z.string().trim().min(1).max(64)}).strict().safeParse(req.body);

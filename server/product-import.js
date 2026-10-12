@@ -210,7 +210,7 @@ async function fetchShopeePdp(ids,{fetchImpl=fetch,timeoutMs=10000}={}){
  }catch{return null;}
  finally{clearTimeout(timer);}
 }
-async function fetchTiktokOembed(rawUrl,{fetchImpl=fetch,timeoutMs=10000}={}){
+export async function fetchTiktokOembed(rawUrl,{fetchImpl=fetch,timeoutMs=10000}={}){
  const item=tiktokItemId(rawUrl);
  if(!item)return null;
  const canonical=`https://www.tiktok.com/@/${item.kind}/${item.id}`;
