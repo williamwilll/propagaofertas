@@ -34,13 +34,16 @@ function repository(query,close,kind){
   },
   async update(table,id,data){return (await run(`UPDATE ${tableName(table)} SET data=? WHERE id=?`,[JSON.stringify(data),id])).rowCount;},
   async remove(table,id){return (await run(`DELETE FROM ${tableName(table)} WHERE id=?`,[id])).rowCount;},
+  async setStatus(table,id,status){if(tableName(table)!=='flows')throw new Error('Tabela inválida');if(!['draft','active'].includes(status))throw new Error('Status inválido');return (await run(`UPDATE flows SET status=? WHERE id=?`,[status,id])).rowCount;},
   async getConnection(){const row=(await run('SELECT * FROM whatsapp_connections WHERE id=?',['default'])).rows[0];return row?{...JSON.parse(row.data),created_at:row.created_at}:null;},
   async saveConnection(data){const created=new Date().toISOString();await run('INSERT INTO whatsapp_connections (id,data,created_at) VALUES (?,?,?) ON CONFLICT (id) DO UPDATE SET data=excluded.data',['default',JSON.stringify(data),created]);},
   async recordInbound(remoteId,data){try{await run('INSERT INTO whatsapp_messages (remote_id,data,created_at) VALUES (?,?,?)',[remoteId,JSON.stringify(data),new Date().toISOString()]);return {duplicate:false};}catch(error){const code=String(error?.code||'')+String(error?.message||'');if(/23505|UNIQUE|CONSTRAINT|duplicate/i.test(code))return {duplicate:true};throw error;}},
   async enqueueSend(job){await run('INSERT INTO send_queue (id,flow_id,offer_id,destino,status,scheduled_for,attempts,created_at) VALUES (?,?,?,?,?,?,?,?)',[job.id,job.flowId,job.offerId||null,job.destino,'pending',job.scheduledFor,0,new Date().toISOString()]);},
   async listDueQueue(now,limit=10){return (await run('SELECT * FROM send_queue WHERE status=? AND scheduled_for<=? ORDER BY scheduled_for ASC LIMIT ?',['pending',now,clampLimit(limit)])).rows;},
   async markQueue(id,status,attempts,lastError){return (await run('UPDATE send_queue SET status=?,attempts=?,last_error=? WHERE id=?',[status,attempts,lastError||null,id])).rowCount;},
-  async queueDepth(){const row=(await run("SELECT COUNT(*) AS total FROM send_queue WHERE status='pending'")).rows[0];return Number(row?.total||row?.count||0);}
+  async queueDepth(){const row=(await run("SELECT COUNT(*) AS total FROM send_queue WHERE status='pending'")).rows[0];return Number(row?.total||row?.count||0);},
+  async listQueue(status,limit=50){const allowed=['pending','sent','dead','failed'];if(!allowed.includes(status))throw new Error('Status inválido');return (await run('SELECT * FROM send_queue WHERE status=? ORDER BY scheduled_for DESC LIMIT ?',[status,clampLimit(limit)])).rows;},
+  async queueStats(){const rows=(await run("SELECT status, COUNT(*) AS total FROM send_queue GROUP BY status")).rows;const out={pending:0,sent:0,dead:0,failed:0};for(const r of rows)out[r.status]=Number(r.total||r.count||0);const flows=(await run("SELECT COUNT(*) AS total FROM flows WHERE status='active'")).rows[0];out.activeFlows=Number(flows?.total||flows?.count||0);return out;}
  };
 }
 export function createSqliteStore(path){

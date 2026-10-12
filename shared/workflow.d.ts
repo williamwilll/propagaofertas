@@ -4,4 +4,5 @@ export interface FlowCheck {code:string;label:string;passed:boolean;step:number|
 export interface FlowInspection {ready:boolean;checks:FlowCheck[];pending:number}
 export interface FlowIntegrations {whatsapp?:boolean;affiliate?:boolean;permissions?:boolean}
 export function inspectFlow(flow:FlowData,integrations?:FlowIntegrations):FlowInspection;
+export function destinationsVerified(flow:FlowData,groups:Array<{id?:string;name?:string}|string>):boolean;
 export function composeOffer(offer:OfferData):string;

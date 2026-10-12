@@ -3,14 +3,16 @@ import helmet from 'helmet';
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
 import {resolve} from 'node:path';
-import {inspectFlow} from '../shared/workflow.js';
+import {inspectFlow,destinationsVerified} from '../shared/workflow.js';
 import {createSqliteStore,createPostgresStore} from './store.js';
 import {installAuth} from './auth.js';
 import {validateProduction} from './config.js';
 import {rateLimit} from 'express-rate-limit';
 import {importProduct} from './product-import.js';
 import {ProductError} from './product-fetch.js';
-import {verifySignature,parseWebhookPayload,isStale,processDueQueue,createGraphSender} from './whatsapp.js';
+import {verifySignature,parseWebhookPayload,isStale,processDueQueue,createGraphSender,enqueueFlowSends} from './whatsapp.js';
+import {createBaileysProvider} from './whatsapp-baileys.js';
+import {composeOffer} from '../shared/workflow.js';
 import {allowedImageUrl,imageDomains} from '../shared/product-policy.js';
 
 const text=z.string().trim().max(300);
@@ -84,7 +86,46 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
  });
  const authReady=installAuth(app,db,config);
  const ready=Promise.all([db.ready,authReady]);
- app.get('/api/state',async(_req,res)=>res.json({flows:await db.list('flows'),offers:await db.list('offers'),integrationsReady:false}));
+ // Provedor de envio: Baileys local (QR) ou Cloud API (token). Testes injetam via options.
+ const baileys=options.baileysProvider||createBaileysProvider({sessionDir:resolve('data/wpp-session')});
+ const cloudConfigured=!!(config.whatsappToken&&config.whatsappPhoneNumberId);
+ if((options.enableBaileys||process.env.WHATSAPP_PROVIDER==='baileys')&&!options.baileysProvider)baileys.start().catch(()=>{});
+ const normName=v=>String(v??'').trim().normalize('NFKC').toLocaleLowerCase('pt-BR');
+ async function computeIntegrations(flow){
+  const connection=await db.getConnection().catch(()=>null);
+  let groups=[];
+  try{if(baileys.status().connected)groups=await baileys.listGroups();}catch{groups=[];}
+  const whatsapp=!!connection?.verified||baileysConnected();
+  const offers=await db.list('offers',1).catch(()=>[]);
+  return {whatsapp,affiliate:offers.length>0,permissions:flow?destinationsVerified(flow,groups):false};
+ }
+ function baileysConnected(){try{return baileys.status().connected;}catch{return false;}}
+ async function resolveSender(){
+  const bst=baileys.status();
+  let groups=[];
+  if(bst.connected){try{groups=await baileys.listGroups();}catch{groups=[];}}
+  const useBaileys=bst.connected;
+  const cloudBase=options.whatsappSender||(cloudConfigured?createGraphSender({token:config.whatsappToken,phoneNumberId:config.whatsappPhoneNumberId}):null);
+  if(!useBaileys&&!cloudBase)return null;
+  return async job=>{
+   let offer=job.offer,text=job.text;
+   if(!text&&job.offer_id){
+    try{const found=await db.get('offers',job.offer_id);if(found){offer=found;text=composeOffer(found);}}catch{}
+   }
+   if(!text)throw new Error('Oferta do envio não encontrada.');
+   if(useBaileys){
+    const want=String(job.destino||'').trim();
+    const g=groups.find(x=>x.id===want||normName(x.name)===normName(want));
+    if(!g)throw new Error(`Grupo "${want}" não está no WhatsApp conectado.`);
+    return baileys.sendJob({...job,destino:g.id,text,offer});
+   }
+   if(/^\d{7,15}$/.test(String(job.destino||'').replace(/\D/g,''))&&String(job.destino).replace(/\D/g,'').length>=7){
+    return cloudBase({...job,destino:'+'+String(job.destino).replace(/\D/g,''),text,offer});
+   }
+   throw new Error('Destino não é um telefone; conecte o Baileys para enviar a grupos.');
+  };
+ }
+ app.get('/api/state',async(_req,res)=>res.json({flows:await db.list('flows'),offers:await db.list('offers'),queue:await db.queueStats().catch(()=>({pending:0,sent:0,dead:0,failed:0,activeFlows:0})),integrationsReady:false}));
  let activeImports=0;
  const importLimit=rateLimit({windowMs:60000,limit:10,standardHeaders:'draft-7',legacyHeaders:false,message:{error:'Aguarde um minuto antes de buscar mais produtos.'}});
  app.post('/api/offers/import',importLimit,async(req,res)=>{
@@ -116,19 +157,41 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
  app.get('/api/flows/:id/check',async(req,res)=>{
   const flow=await db.get('flows',req.params.id);
   if(!flow)return res.status(404).json({error:'Fluxo não encontrado.'});
-  const connection=await db.getConnection().catch(()=>null);
-  res.json(inspectFlow(flow,{whatsapp:!!connection?.verified}));
+  res.json(inspectFlow(flow,await computeIntegrations(flow)));
  });
  app.post('/api/flows/:id/activate',async(req,res)=>{
   const flow=await db.get('flows',req.params.id);
   if(!flow)return res.status(404).json({error:'Fluxo não encontrado.'});
-  const connection=await db.getConnection().catch(()=>null);
-  res.status(409).json({error:'Ativação bloqueada: confira as pendências do fluxo.',...inspectFlow(flow,{whatsapp:!!connection?.verified})});
+  const inspection=inspectFlow(flow,await computeIntegrations(flow));
+  if(!inspection.ready)return res.status(409).json({error:'Ativação bloqueada: confira as pendências do fluxo.',...inspection});
+  await db.setStatus('flows',req.params.id,'active');
+  res.json({ok:true,status:'active',...inspection});
  });
+ app.post('/api/flows/:id/deactivate',async(req,res)=>{
+  if(!await db.get('flows',req.params.id))return res.status(404).json({error:'Fluxo não encontrado.'});
+  await db.setStatus('flows',req.params.id,'draft');
+  res.json({ok:true,status:'draft'});
+ });
+ app.post('/api/flows/:id/dispatch',async(req,res)=>{
+  const flow=await db.get('flows',req.params.id);
+  if(!flow)return res.status(404).json({error:'Fluxo não encontrado.'});
+  if(flow.status!=='active')return res.status(409).json({error:'Ative o fluxo antes de enfileirar.'});
+  const offers=await db.list('offers');
+  if(!offers.length)return res.status(409).json({error:'Cadastre ao menos uma oferta.'});
+  res.json(await enqueueFlowSends(db,flow,offers));
+ });
+ app.get('/api/queue',async(req,res)=>{
+  const status=String(req.query.status||'pending');
+  try{res.json({items:await db.listQueue(status,50)});}
+  catch{res.status(400).json({error:'Status inválido. Use pending, sent, dead ou failed.'});}
+ });
+ app.get('/api/queue/stats',async(_req,res)=>res.json(await db.queueStats()));
  app.get('/api/whatsapp/status',async(_req,res)=>{
   const connection=await db.getConnection().catch(()=>null);
   const depth=await db.queueDepth().catch(()=>0);
-  res.json({configured:!!(config.whatsappToken&&config.whatsappPhoneNumberId),verified:!!connection?.verified,queueDepth:depth});
+  let baileysStatus=null;
+  try{baileysStatus=baileys.status();}catch{}
+  res.json({configured:!!(config.whatsappToken&&config.whatsappPhoneNumberId)||!!baileysStatus?.connected,verified:!!connection?.verified,baileys:baileysStatus?{connected:baileysStatus.connected,me:baileysStatus.me,hasQR:baileysStatus.hasQR,needsRepair:baileysStatus.needsRepair,lastError:baileysStatus.lastError}:null,queueDepth:depth});
  });
  app.get('/api/integrations/shopee-status',async(_req,res)=>{
   res.json({configured:!!(process.env.SHOPEE_APP_ID&&process.env.SHOPEE_APP_SECRET)});
@@ -141,9 +204,27 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
   res.json({ok:true});
  });
  app.post('/api/queue/process',async(_req,res)=>{
-  if(!(config.whatsappToken&&config.whatsappPhoneNumberId))return res.status(409).json({error:'WhatsApp não configurado.'});
-  const sender=options.whatsappSender||createGraphSender({token:config.whatsappToken,phoneNumberId:config.whatsappPhoneNumberId});
+  const sender=await resolveSender();
+  if(!sender)return res.status(409).json({error:'Nenhum provedor conectado. Pareie o WhatsApp (QR) ou configure a Cloud API.'});
   res.json(await processDueQueue(db,sender,{now:new Date().toISOString(),limit:10}));
+ });
+ app.get('/api/whatsapp/baileys/status',async(_req,res)=>res.json(baileys.status()));
+ app.get('/api/whatsapp/baileys/groups',async(_req,res)=>{
+  try{res.json({groups:await baileys.listGroups()});}
+  catch(e){res.status(409).json({error:e instanceof Error?e.message:'WhatsApp não conectado.'});}
+ });
+ app.post('/api/whatsapp/baileys/test',async(req,res)=>{
+  const result=z.object({groupId:z.string().trim().min(1).max(128)}).strict().safeParse(req.body);
+  if(!result.success)return res.status(400).json({error:'Informe o grupo.'});
+  try{res.json(await baileys.sendTest(result.data.groupId));}
+  catch(e){res.status(409).json({error:e instanceof Error?e.message:'Falha no envio.'});}
+ });
+ app.post('/api/whatsapp/baileys/logout',async(_req,res)=>res.json(await baileys.logout()));
+ app.post('/api/whatsapp/baileys/pair-code',async(req,res)=>{
+  const result=z.object({phone:z.string().trim().min(10).max(20)}).strict().safeParse(req.body);
+  if(!result.success)return res.status(400).json({error:'Informe o número com DDI+DDD.'});
+  try{res.json({code:await baileys.requestPairCode(result.data.phone)});}
+  catch(e){res.status(409).json({error:e instanceof Error?e.message:'Falha ao gerar código.'});}
  });
  app.use('/api',(_req,res)=>res.status(404).json({error:'Operação não encontrada.'}));
  app.use(express.static(resolve('dist'),{setHeaders(res,path){if(path.endsWith('index.html'))res.setHeader('Cache-Control','no-cache');}}));
@@ -153,5 +234,10 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
   console.error('Falha interna ao processar requisição.');
   res.status(500).json({error:'Não foi possível concluir a operação. Tente novamente.'});
  });
- return {app,db,ready};
+ async function processQueue(limit=10){
+  const sender=await resolveSender();
+  if(!sender)return {processed:0,sent:0,failed:0,dead:0,skipped:'no-provider'};
+  return processDueQueue(db,sender,{now:new Date().toISOString(),limit});
+ }
+ return {app,db,ready,processQueue,baileys};
 }

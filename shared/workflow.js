@@ -15,11 +15,20 @@ export function inspectFlow(flow, integrations = {}) {
     {code:'route',label:'Rota sem destinos repetidos ou retorno à origem',passed:distinct && routeSafe,step:3},
     {code:'schedule',label:'Dias e janela de envio definidos',passed:flow.days.length > 0 && flow.start < flow.end,step:4},
     {code:'whatsapp',label:'Conexão e suporte do provedor WhatsApp verificados',passed:!!integrations.whatsapp,step:null},
-    {code:'affiliate',label:'API de afiliados e vínculo dos links verificados',passed:!!integrations.affiliate,step:null},
-    {code:'permissions',label:'Acesso à origem e aos destinos verificado pela integração',passed:!!integrations.permissions,step:null}
+    {code:'affiliate',label:'Ofertas com links cadastrados para distribuir',passed:!!integrations.affiliate,step:2},
+    {code:'permissions',label:'Destinos conferem com os grupos do WhatsApp conectado',passed:!!integrations.permissions,step:3}
   ];
   const pending = checks.filter(c=>!c.passed).length;
   return {ready:pending === 0,checks,pending};
+}
+
+// Verificação real: cada destino precisa existir nos grupos conectados (nome ou jid).
+export function destinationsVerified(flow, groups){
+ const dests=(flow.destinations||[]).map(clean).filter(Boolean);
+ if(!dests.length||!groups?.length)return false;
+ const names=new Set(groups.map(g=>key(g?.name??g)));
+ const ids=new Set(groups.map(g=>g?.id||''));
+ return dests.every(d=>names.has(key(d))||ids.has(d));
 }
 
 const WHATSAPP_LIMIT = 4096;
