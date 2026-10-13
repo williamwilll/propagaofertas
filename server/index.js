@@ -10,6 +10,14 @@ const {app,db,ready}=application;
 try{await ready;}catch(error){console.error(databaseDiagnostic(error));try{await db.close();}catch{}process.exit(1);}
 const server=app.listen(config.port,config.host,()=>console.log(`PropagaOfertas iniciado na porta ${config.port} (${config.production?'produção com login':'modo local'}).`));
 server.on('error',()=>{console.error('Não foi possível abrir a porta do servidor.');void db.close();process.exitCode=1;});
+// Baileys e sockets podem gerar rejeições assíncronas fora do ciclo de request.
+// Em produção: registra e reinicia (Render sobe de novo). No modo local:
+// registra e mantém o app no ar para a sessão de uso não cair.
+for(const ev of ['unhandledRejection','uncaughtException'])process.on(ev,reason=>{
+ const msg=reason instanceof Error?reason.message:String(reason||'').slice(0,300);
+ console.error(`Falha assíncrona (${ev}): ${msg}`);
+ if(config.production){try{server.close(()=>process.exit(1));}catch{process.exit(1);}setTimeout(()=>process.exit(1),5000).unref?.();}
+});
 // Worker da fila: a cada 30s processa vencidos com o provedor resolvido (Baileys ou Cloud).
 // Chamada direta (sem HTTP): sem problema de Host/Origin/auth. Silencioso sem provedor.
 const workerMs=Number(process.env.QUEUE_WORKER_MS||30000);
