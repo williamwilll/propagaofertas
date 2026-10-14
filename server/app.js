@@ -15,6 +15,7 @@ import {verifySignature,parseWebhookPayload,isStale,processDueQueue,createGraphS
 import {createBaileysProvider} from './whatsapp-baileys.js';
 import {PLATFORMS,integrationsStatus,testPlatform} from './affiliates.js';
 import {telegramDestino,telegramGetChat,telegramGetMe,telegramTest,createTelegramSender} from './telegram.js';
+import {mlAppCreds,mlRedirectUri,mlAuthUrl,mlExchangeCode,mlRefresh,mlTokenExpired,mlPredictCategory,mlPublishOffer} from './ml.js';
 import {composeOffer} from '../shared/workflow.js';
 import {allowedImageUrl,imageDomains} from '../shared/product-policy.js';
 
@@ -279,6 +280,74 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
   catch(e){res.status(409).json({error:e instanceof Error?e.message:'Falha no envio.'});}
  });
  app.post('/api/whatsapp/baileys/logout',async(_req,res)=>res.json(await baileys.logout()));
+ // Mercado Livre vendedor (OAuth2 + publicação). Tokens no banco do servidor.
+ async function mlAccess(){
+  const creds=mlAppCreds(process.env);
+  if(!creds)throw new Error('Defina ML_APP_ID e ML_APP_SECRET no servidor.');
+  let auth=await db.getMlAuth().catch(()=>null);
+  if(!auth)throw new Error('Conecte sua conta do Mercado Livre primeiro.');
+  if(mlTokenExpired(auth)){
+   auth={...await mlRefresh({appId:creds.appId,secret:creds.secret,refreshToken:auth.refreshToken}),created_at:new Date().toISOString()};
+   await db.saveMlAuth(auth);
+  }
+  return {creds,auth};
+ }
+ app.get('/api/ml/status',async(_req,res)=>{
+  const creds=mlAppCreds(process.env);
+  if(!creds)return res.json({configured:false,needs:['ML_APP_ID','ML_APP_SECRET'],redirectUri:mlRedirectUri(process.env)});
+  const auth=await db.getMlAuth().catch(()=>null);
+  res.json({configured:true,connected:!!auth&&!mlTokenExpired(auth),userId:auth?.userId||null,redirectUri:mlRedirectUri(process.env)});
+ });
+ app.get('/api/ml/auth-url',async(_req,res)=>{
+  const creds=mlAppCreds(process.env);
+  if(!creds)return res.status(409).json({error:'Defina ML_APP_ID e ML_APP_SECRET no servidor.',needs:['ML_APP_ID','ML_APP_SECRET']});
+  res.json({url:mlAuthUrl({appId:creds.appId,redirectUri:mlRedirectUri(process.env)}),redirectUri:mlRedirectUri(process.env)});
+ });
+ app.get('/api/ml/callback',async(req,res)=>{
+  try{
+   const creds=mlAppCreds(process.env);
+   if(!creds)throw new Error('App não configurado no servidor.');
+   const code=String(req.query.code||'');
+   if(!code)throw new Error('Autorização negada no Mercado Livre.');
+   const tokens=await mlExchangeCode({appId:creds.appId,secret:creds.secret,code,redirectUri:mlRedirectUri(process.env)});
+   await db.saveMlAuth(tokens);
+   res.send('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Conectado</title></head><body style="font-family:sans-serif;padding:40px"><h1>Conta do Mercado Livre conectada.</h1><p>Pode fechar esta aba e voltar ao PropagaOfertas.</p></body></html>');
+  }catch(e){res.status(400).send(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Erro</title></head><body style="font-family:sans-serif;padding:40px"><h1>Não foi possível conectar.</h1><p>${e instanceof Error?e.message:'Erro.'}</p></body></html>`);}
+ });
+ app.post('/api/ml/disconnect',async(_req,res)=>{await db.clearMlAuth().catch(()=>{});res.json({ok:true});});
+ app.post('/api/ml/predict',async(req,res)=>{
+  try{
+   const {auth}=await mlAccess();
+   const result=z.object({title:z.string().trim().min(1).max(300)}).strict().safeParse(req.body);
+   if(!result.success)return res.status(400).json({error:'Informe o título.'});
+   res.json(await mlPredictCategory(result.data.title,auth.accessToken,{fetchImpl:options.mlFetch||fetch}));
+  }catch(e){res.status(e instanceof Error&&/Conecte|Defina/.test(e.message)?409:502).json({error:e instanceof Error?e.message:'Falha.'});}
+ });
+ const publishLimit=rateLimit({windowMs:60*60*1000,limit:30,standardHeaders:'draft-7',legacyHeaders:false,message:{error:'Limite de publicações: aguarde antes de anunciar de novo.'}});
+ app.post('/api/ml/publish',publishLimit,async(req,res)=>{
+  try{
+   const {auth}=await mlAccess();
+   const result=z.object({offerId:z.string().trim().min(1).max(128),categoryId:z.string().trim().min(1).max(32).optional(),price:z.number().positive().max(10000000).optional(),quantity:z.number().int().min(1).max(100000).optional(),listingType:z.string().trim().max(32).optional()}).strict().safeParse(req.body);
+   if(!result.success)return res.status(400).json({error:'Confira os campos informados.',details:result.error.issues});
+   const offer=await db.get('offers',result.data.offerId);
+   if(!offer)return res.status(404).json({error:'Oferta não encontrada.'});
+   const run=async token=>mlPublishOffer(offer,{categoryId:result.data.categoryId,price:result.data.price,quantity:result.data.quantity,listingType:result.data.listingType},{accessToken:token},{fetchImpl:options.mlFetch||fetch});
+   try{res.json(await run(auth.accessToken));}
+   catch(e){
+    if(e&&e.code==='ML_UNAUTHORIZED'){
+     const creds=mlAppCreds(process.env);
+     const renewed={...await mlRefresh({appId:creds.appId,secret:creds.secret,refreshToken:auth.refreshToken}),created_at:new Date().toISOString()};
+     await db.saveMlAuth(renewed);
+     res.json(await run(renewed.accessToken));
+    }else throw e;
+   }
+  }catch(e){
+   const msg=e instanceof Error?e.message:'Não foi possível publicar.';
+   if(/Conecte sua conta|Defina ML_APP/.test(msg))return res.status(409).json({error:msg});
+   const status=e&&e.status===400?400:(/Oferta|categoria|Categoria|Título|Preço|Quantidade|imagem/i.test(msg)?(e.status||422):502);
+   res.status(status).json({error:msg,code:e&&e.code});
+  }
+ });
  app.post('/api/whatsapp/baileys/pair-code',async(req,res)=>{
   const result=z.object({phone:z.string().trim().min(10).max(20)}).strict().safeParse(req.body);
   if(!result.success)return res.status(400).json({error:'Informe o número com DDI+DDD.'});

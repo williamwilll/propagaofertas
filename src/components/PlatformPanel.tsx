@@ -12,13 +12,14 @@ async function api(path: string, method = 'GET', body?: unknown) {
 const HELP: Record<string, {about: string; steps: string[]}> = {
   'Shopee': {about: 'API oficial de afiliados (dados exatos + link com tracking). Sem chaves, o importador usa PDP e página.', steps: ['No portal de afiliados Shopee, gere App ID e App Secret.', 'No servidor, defina SHOPEE_APP_ID e SHOPEE_APP_SECRET e reinicie.', 'Volte aqui e clique em Testar agora.']},
   'Amazon': {about: 'Tag de afiliado verificada nas suas ofertas. Com as chaves, a PA-API valida o anúncio.', steps: ['Use seus links com ?tag=SUA-TAG-20 em todas as ofertas.', 'Opcional (validação completa): defina AMAZON_PARTNER_TAG, AMAZON_ACCESS_KEY e AMAZON_SECRET_KEY no servidor.', 'Clique em Testar agora.']},
-  'Mercado Livre': {about: 'API pública, sem chave: confere se o anúncio MLB existe, o título e o preço.', steps: ['Cadastre ofertas com o link do anúncio (contendo MLB123…).', 'Clique em Testar agora — sem configuração.']},
+  'Mercado Livre': {about: 'API pública para conferir anúncios; com sua conta conectada, publica ofertas como anúncios.', steps: ['Cadastre ofertas com o link do anúncio (contendo MLB123…).', 'Clique em Testar agora — sem configuração.', 'Para publicar: crie o app, conecte a conta abaixo e use Anunciar na oferta.']},
   'TikTok': {about: 'Leitura parcial oficial (oEmbed): título e foto de vídeos. Preço sempre manual.', steps: ['Prefira links de vídeo (vt.tiktok.com) aos da loja.', 'Clique em Testar agora.']},
   'Kwai': {about: 'Sem API pública: cadastro e envio manuais com o texto da oferta.', steps: ['Cadastre título, preço e link manualmente.', 'Compartilhe pela prévia da oferta.']}
 };
 
 export function PlatformPanel({platform}: {platform: string}) {
   const [status, setStatus] = useState<any>(null);
+  const [ml, setMl] = useState<any>(null);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -27,6 +28,9 @@ export function PlatformPanel({platform}: {platform: string}) {
   const load = useCallback(async () => {
     const s = await api('/integrations/status');
     setStatus(s[platform]);
+    if (platform === 'Mercado Livre') {
+      try { setMl(await api('/ml/status')); } catch { setMl(null); }
+    }
   }, [platform]);
 
   useEffect(() => { load().catch(e => setError((e as Error).message)); }, [load]);
@@ -46,6 +50,28 @@ export function PlatformPanel({platform}: {platform: string}) {
         </div>
       )}
       <ol className="list-decimal space-y-1 pl-5 text-sm leading-7">{help.steps.map((s, i) => <li key={i}>{s}</li>)}</ol>
+      {platform === 'Mercado Livre' && (
+        <div className="space-y-3 rounded-lg border border-[var(--border)] p-4">
+          <h3 className="text-sm font-semibold">Conta de vendedor (para publicar anúncios)</h3>
+          {ml && ml.redirectUri && <p className={muted}>Registre este retorno no seu app em developers.mercadolivre.com.br → Redirect URI: <span className="break-all font-mono">{ml.redirectUri}</span></p>}
+          <p className="text-sm">{ml ? (ml.connected ? `Conectada${ml.userId ? ' (usuário ' + ml.userId + ')' : ''}.` : 'App configurado, conta não conectada.') : 'Verificando…'}</p>
+          <div className="flex flex-wrap gap-2">
+            {ml && !ml.connected && ml.configured !== false && (
+              <button disabled={busy} className={primary} onClick={() => {
+                setBusy(true); setError('');
+                api('/ml/auth-url').then(r => window.open(r.url, '_blank', 'noopener')).catch(e => setError(e instanceof Error ? e.message : 'Falha.')).finally(() => setBusy(false));
+              }}>Conectar conta</button>
+            )}
+            {ml?.connected && (
+              <button disabled={busy} className={btn} onClick={() => {
+                if (!confirm('Desconectar a conta do Mercado Livre?')) return;
+                setBusy(true); api('/ml/disconnect', 'POST', {}).then(() => void load()).catch(e => setError(e instanceof Error ? e.message : 'Falha.')).finally(() => setBusy(false));
+              }}>Desconectar</button>
+            )}
+            <button disabled={busy} className={btn} onClick={() => void load().catch(e => setError((e as Error).message))}>Verificar conexão</button>
+          </div>
+        </div>
+      )}
       {result && (
         <div className="rounded-lg bg-[var(--soft)] p-4 text-sm">
           {result.manual
