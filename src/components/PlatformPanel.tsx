@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useState} from 'react';
-import {Plug, RefreshCw, FlaskConical} from 'lucide-react';
+import {Plug, RefreshCw, FlaskConical, Check, Link2} from 'lucide-react';
 
 async function api(path: string, method = 'GET', body?: unknown) {
   const r = await fetch('/api' + path, {method, headers: body ? {'Content-Type': 'application/json'} : undefined, body: body ? JSON.stringify(body) : undefined});
@@ -9,12 +9,12 @@ async function api(path: string, method = 'GET', body?: unknown) {
   return data;
 }
 
-const HELP: Record<string, {about: string; steps: string[]}> = {
-  'Shopee': {about: 'API oficial de afiliados (dados exatos + link com tracking). Sem chaves, o importador usa PDP e página.', steps: ['No portal de afiliados Shopee, gere App ID e App Secret.', 'No servidor, defina SHOPEE_APP_ID e SHOPEE_APP_SECRET e reinicie.', 'Volte aqui e clique em Testar agora.']},
-  'Amazon': {about: 'Tag de afiliado verificada nas suas ofertas. Com as chaves, a PA-API valida o anúncio.', steps: ['Use seus links com ?tag=SUA-TAG-20 em todas as ofertas.', 'Opcional (validação completa): defina AMAZON_PARTNER_TAG, AMAZON_ACCESS_KEY e AMAZON_SECRET_KEY no servidor.', 'Clique em Testar agora.']},
-  'Mercado Livre': {about: 'API pública para conferir anúncios; com sua conta conectada, publica ofertas como anúncios.', steps: ['Cadastre ofertas com o link do anúncio (contendo MLB123…).', 'Clique em Testar agora — sem configuração.', 'Para publicar: crie o app, conecte a conta abaixo e use Anunciar na oferta.']},
-  'TikTok': {about: 'Leitura parcial oficial (oEmbed): título e foto de vídeos. Preço sempre manual.', steps: ['Prefira links de vídeo (vt.tiktok.com) aos da loja.', 'Clique em Testar agora.']},
-  'Kwai': {about: 'Sem API pública: cadastro e envio manuais com o texto da oferta.', steps: ['Cadastre título, preço e link manualmente.', 'Compartilhe pela prévia da oferta.']}
+const HELP: Record<string, {about: string; ready: string; steps: string[]}> = {
+  'Shopee': {about: 'Traz dados exatos do produto e o seu link com tracking.', ready: 'Já funciona sem chave: puxe seus produtos e use o seu link.', steps: ['Com chave: seus produtos importam com o link de afiliado pronto.', 'Sem chave: o app tenta as páginas da loja e preenche o que conseguir.', 'Para tudo exato: cole suas chaves abaixo e clique em Testar.']},
+  'Amazon': {about: 'Confere sua tag de afiliado nas ofertas.', ready: 'Sem chave, apenas confere se o seu link tem sua tag.', steps: ['Sem chave: clico em Testar e vejo se sua tag está nos seus links.', 'Com chave completa: confirmo o produto direto na Amazon.', 'Para validar tudo: cole suas chaves abaixo.']},
+  'Mercado Livre': {about: 'Testa seus anúncios e, com a conta conectada, publica ofertas no seu perfil.', ready: 'Sem chaves, só confere se o anúncio existe.', steps: ['Cadastre suas ofertas com o link do anúncio (contendo MLB123…).', 'Clique em Testar.', 'Para publicar: crie o app, conecte a conta e use Anunciar na oferta.']},
+  'TikTok': {about: 'Pega título e foto de vídeos. Preço você escreve.', ready: 'Sem chaves, testa com suas ofertas.', steps: ['Prefira links de vídeo (vt.tiktok.com).', 'Clique em Testar.']},
+  'Kwai': {about: 'Você escreve título, preço e link e compartilha.', ready: 'Não usa chave: comece a divulgar agora.', steps: ['Cadastre a oferta com seu link.', 'Use as Sugestões e a Prévia para copiar e enviar.']}
 };
 
 export function PlatformPanel({platform}: {platform: string}) {
@@ -23,7 +23,21 @@ export function PlatformPanel({platform}: {platform: string}) {
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const help = HELP[platform] || {about: '', steps: []};
+  const [secrets, setSecrets] = useState<Record<string, string>>({});
+  const help = HELP[platform] || {about: '', ready: '', steps: []};
+  const FIELDS: Record<string, {name: string; key: string; placeholder: string; locked?: boolean}[]> = {
+    'Shopee': [
+      {name: 'App ID', key: 'shopee_app_id', placeholder: 'ex: 123456'},
+      {name: 'App Secret', key: 'shopee_app_secret', placeholder: 'cole aqui'}
+    ],
+    'Amazon': [
+      {name: 'Partner Tag', key: 'amazon_tag', placeholder: 'ex: minha-tag-20', locked: true},
+      {name: 'Access Key', key: 'amazon_access', placeholder: 'cole aqui'},
+      {name: 'Secret Key', key: 'amazon_secret', placeholder: 'cole aqui'}
+    ],
+    'Telegram': [{name: 'Token do bot', key: 'telegram_token', placeholder: 'ex: 123:ABC...'}]
+  };
+  const fields = FIELDS[platform] || [];
 
   const load = useCallback(async () => {
     const s = await api('/integrations/status');
@@ -31,7 +45,7 @@ export function PlatformPanel({platform}: {platform: string}) {
     if (platform === 'Mercado Livre') {
       try { setMl(await api('/ml/status')); } catch { setMl(null); }
     }
-  }, [platform]);
+    if (platform === 'Telegram') { /* opcional: painel próprio cuida do status */ }  }, [platform]);
 
   useEffect(() => { load().catch(e => setError((e as Error).message)); }, [load]);
 
@@ -40,55 +54,74 @@ export function PlatformPanel({platform}: {platform: string}) {
   const muted = 'text-xs leading-6 text-[var(--muted)]';
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <p className="text-sm leading-7">{help.about}</p>
       {error && <p role="alert" className="rounded-lg bg-[var(--warning)] p-3 text-xs leading-6 text-[var(--amber)]">{error}</p>}
       {status && (
         <div className="rounded-lg bg-[var(--soft)] p-4 text-sm">
-          <p><strong>Modo:</strong> {status.mode === 'api' ? 'API oficial' : status.mode === 'tag' ? 'Tag verificada' : status.mode === 'publica' ? 'API pública' : status.mode === 'parcial' ? 'Parcial' : status.mode === 'manual' ? 'Manual' : 'Desligada'} · <strong>Ofertas:</strong> {status.offers ?? 0}</p>
-          {status.needs?.length > 0 && <p className={muted}>Variáveis no servidor: {status.needs.join(', ')}</p>}
+          <p>{help.ready}</p>
+          <p className="mt-1 text-xs text-[var(--muted)]">{status.offers ?? 0} oferta(s) desta loja</p>
         </div>
       )}
       <ol className="list-decimal space-y-1 pl-5 text-sm leading-7">{help.steps.map((s, i) => <li key={i}>{s}</li>)}</ol>
-      {platform === 'Mercado Livre' && (
-        <div className="space-y-3 rounded-lg border border-[var(--border)] p-4">
-          <h3 className="text-sm font-semibold">Conta de vendedor (para publicar anúncios)</h3>
-          {ml && ml.redirectUri && <p className={muted}>Registre este retorno no seu app em developers.mercadolivre.com.br → Redirect URI: <span className="break-all font-mono">{ml.redirectUri}</span></p>}
-          <p className="text-sm">{ml ? (ml.connected ? `Conectada${ml.userId ? ' (usuário ' + ml.userId + ')' : ''}.` : 'App configurado, conta não conectada.') : 'Verificando…'}</p>
+      {platform === 'Mercado Livre' && ml && (
+        <div className="space-y-2 rounded-lg border border-[var(--border)] p-4">
+          <p className="text-sm">{ml.connected ? 'Conta conectada. Pronto para publicar.' : 'Para publicar, conecte sua conta:'}</p>
+          <p className={breakable(ml)}>{ml.redirectUri || ''}</p>
           <div className="flex flex-wrap gap-2">
-            {ml && !ml.connected && ml.configured !== false && (
-              <button disabled={busy} className={primary} onClick={() => {
+            {!ml.connected && (
+              <button disabled={busy} className={btn} onClick={() => {
                 setBusy(true); setError('');
                 api('/ml/auth-url').then(r => window.open(r.url, '_blank', 'noopener')).catch(e => setError(e instanceof Error ? e.message : 'Falha.')).finally(() => setBusy(false));
-              }}>Conectar conta</button>
+              }}><Link2 size={14}/>Conectar conta</button>
             )}
-            {ml?.connected && (
-              <button disabled={busy} className={btn} onClick={() => {
-                if (!confirm('Desconectar a conta do Mercado Livre?')) return;
-                setBusy(true); api('/ml/disconnect', 'POST', {}).then(() => void load()).catch(e => setError(e instanceof Error ? e.message : 'Falha.')).finally(() => setBusy(false));
-              }}>Desconectar</button>
-            )}
-            <button disabled={busy} className={btn} onClick={() => void load().catch(e => setError((e as Error).message))}>Verificar conexão</button>
+            {ml.connected && <p className="text-xs font-semibold text-[var(--green)]"><Check size={14} className="mr-1 inline"/>Conectada</p>}
+          </div>
+        </div>
+      )}
+      {fields.length > 0 && (
+        <div className="space-y-3 rounded-lg border border-[var(--border)] p-4">
+          <h3 className="text-sm font-semibold">Suas chaves</h3>
+          {fields.map(f => (
+            <label key={f.key} className="flex flex-col gap-2 text-xs font-semibold">
+              {f.name}
+              {f.locked
+                ? <input aria-label={f.name} className="w-full rounded-md border border-dashed border-[var(--border)] bg-[var(--soft)] px-3 py-2.5 text-sm" value="Somente no servidor" readOnly disabled/>
+                : <input aria-label={f.name} type="password" autoComplete="off" placeholder={f.placeholder} className="w-full rounded-md border border-[var(--border)] bg-[var(--white)] px-3 py-2.5 text-sm" value={secrets[f.key] || ''} onChange={e => setSecrets(s => ({...s, [f.key]: e.target.value}))}/>}
+            </label>
+          ))}
+          <div className="flex flex-wrap gap-2">
+            <button disabled={busy} className={btn} onClick={() => {
+              setBusy(true); setError('');
+              const jobs = fields.filter(f => !f.locked && secrets[f.key]?.trim()).map(f => api('/integrations/secret', 'POST', {key: f.key, value: secrets[f.key].trim()}));
+              Promise.all(jobs).then(() => { setSecrets({}); void load(); }).catch(e => setError(e instanceof Error ? e.message : 'Falha.')).finally(() => setBusy(false));
+            }}>Salvar</button>
+            <button disabled={busy} className={btn} onClick={() => void load()}>Ler chaves</button>
           </div>
         </div>
       )}
       {result && (
-        <div className="rounded-lg bg-[var(--soft)] p-4 text-sm">
-          {result.manual
-            ? <p>{result.message}</p>
-            : <><p className="font-semibold">Verificado: {result.title || result.tag || 'ok'}</p>
-              {result.price != null && <p>Preço na plataforma: {Number(result.price).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p>}
-              {result.asin && <p>ASIN: {result.asin}</p>}
-              {result.id && <p>ID: {result.id}</p>}
-              {result.tracking != null && <p>Link com tracking: {result.tracking ? 'sim' : 'não'}</p>}
-              {result.message && <p className={muted}>{result.message}</p>}</>}
+        <div className="space-y-1 rounded-lg bg-[var(--soft)] p-4 text-sm">
+          <p className="font-semibold">Tudo certo: {result.title || result.tag || 'ok'}</p>
+          {result.price != null && <p>Preço: {Number(result.price).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p>}
+          {result.asin && <p>ASIN: {result.asin}</p>}
+          {result.id && <p>ID: {result.id}</p>}
+          {result.tracking != null && <p>Link com tracking: {result.tracking ? 'sim' : 'não'}</p>}
+          {result.message && <p className={muted}>{result.message}</p>}
         </div>
       )}
       <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
-        <button disabled={busy} className={primary} onClick={() => { setBusy(true); setError(''); setResult(null); api(`/integrations/${platform}/test`, 'POST', {}).then(setResult).catch(e => setError((e as Error).message)).finally(() => { setBusy(false); void load(); }); }}><FlaskConical size={14}/>{busy ? 'Testando…' : 'Testar agora'}</button>
+        <button disabled={busy} className={primary} onClick={() => {
+          setBusy(true); setError(''); setResult(null);
+          api(`/integrations/${platform}/test`, 'POST', {}).then(setResult).catch(e => setError(e instanceof Error ? e.message : 'Falha.')).finally(() => { setBusy(false); void load(); });
+        }}><FlaskConical size={14}/>{busy ? 'Testando…' : 'Testar'}</button>
         <button disabled={busy} className={btn} onClick={() => void load()}><RefreshCw size={14}/>Atualizar</button>
       </div>
-      <p className={muted}><Plug size={13} className="mr-1 inline"/>Credenciais ficam só no servidor. A página nunca as exibe.</p>
+      <p className={muted}><Plug size={13} className="mr-1 inline"/>Chaves ficam só no servidor. A página nunca as mostra.</p>
     </div>
   );
+}
+
+function breakable(ml: any) {
+  return 'break-all rounded bg-[var(--white)] px-2 py-1 font-mono text-[11px]';
 }

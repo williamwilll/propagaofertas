@@ -230,7 +230,21 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
  });
  app.get('/api/integrations/status',async(_req,res)=>{
   const offers=await db.list('offers',200).catch(()=>[]);
-  res.json(integrationsStatus(process.env,offers));
+  const shopeeAppId=String(process.env.SHOPEE_APP_ID||'').trim()||await db.getSecret('shopee_app_id').catch(()=>null)||'';
+  const shopeeSecret=String(process.env.SHOPEE_APP_SECRET||'').trim()||await db.getSecret('shopee_app_secret').catch(()=>null)||'';
+  const amzTag=String(process.env.AMAZON_PARTNER_TAG||'').trim()||await db.getSecret('amazon_tag').catch(()=>null)||'';
+  const amzAccess=String(process.env.AMAZON_ACCESS_KEY||'').trim()||await db.getSecret('amazon_access').catch(()=>null)||'';
+  const amzSecret=String(process.env.AMAZON_SECRET_KEY||'').trim()||await db.getSecret('amazon_secret').catch(()=>null)||'';
+  res.json(integrationsStatus({SHOPEE_APP_ID:shopeeAppId,SHOPEE_APP_SECRET:shopeeSecret,AMAZON_PARTNER_TAG:amzTag,AMAZON_ACCESS_KEY:amzAccess,AMAZON_SECRET_KEY:amzSecret},offers));
+ });
+ app.post('/api/integrations/secret',async(req,res)=>{
+  const result=z.object({key:z.enum(['shopee_app_id','shopee_app_secret','amazon_tag','amazon_access','amazon_secret','telegram_token']),value:z.string().trim().max(4096)}).strict().safeParse(req.body);
+  if(!result.success)return res.status(400).json({error:'Chave inválida.'});
+  try{
+   await db.saveSecret(result.data.key,result.data.value);
+   if(result.data.key==='telegram_token')process.env.TELEGRAM_BOT_TOKEN=result.data.value;
+   res.json({ok:true});
+  }catch{res.status(500).json({error:'Não foi possível salvar.'});}
  });
  app.post('/api/integrations/:platform/test',async(req,res)=>{
   const platform=String(req.params.platform||'');
