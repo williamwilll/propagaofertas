@@ -16,6 +16,7 @@ import {createBaileysProvider} from './whatsapp-baileys.js';
 import {PLATFORMS,integrationsStatus,testPlatform} from './affiliates.js';
 import {telegramDestino,telegramGetChat,telegramGetMe,telegramTest,createTelegramSender} from './telegram.js';
 import {mlAppCreds,mlRedirectUri,mlAuthUrl,mlExchangeCode,mlRefresh,mlTokenExpired,mlPredictCategory,mlPublishOffer} from './ml.js';
+function mlEffectiveCreds(env,db){const appId=String(env.ML_APP_ID||'').trim()||db.lastMlAppId||'';const secret=String(env.ML_APP_SECRET||'').trim()||db.lastMlSecret||'';return {appId,secret};}
 import {composeOffer} from '../shared/workflow.js';
 import {allowedImageUrl,imageDomains} from '../shared/product-policy.js';
 
@@ -111,7 +112,7 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
   const all=flow?(flow.destinations||[]).map(d=>String(d||'').trim()).filter(Boolean):[];
   const tgDests=all.filter(d=>telegramDestino(d));
   const waDests=all.filter(d=>!telegramDestino(d));
-  const tgToken=String(process.env.TELEGRAM_BOT_TOKEN||'').trim();
+  const tgToken=String(process.env.TELEGRAM_BOT_TOKEN||'').trim()||db.lastTgToken||'';
   const tgFetch=options.telegramFetch||fetch;
   let tgOk=true;
   if(tgDests.length){
@@ -132,7 +133,7 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
   let groups=[];
   if(bst.connected){try{groups=await baileys.listGroups();}catch{groups=[];}}
   const useBaileys=bst.connected;
-  const tgToken=String(process.env.TELEGRAM_BOT_TOKEN||'').trim();
+  const tgToken=String(process.env.TELEGRAM_BOT_TOKEN||'').trim()||db.lastTgToken||'';
   const tgBase=tgToken?createTelegramSender({token:tgToken,fetchImpl:options.telegramFetch||fetch}):(options.telegramSender||null);
   const cloudBase=options.whatsappSender||(cloudConfigured?createGraphSender({token:config.whatsappToken,phoneNumberId:config.whatsappPhoneNumberId}):null);
   if(!useBaileys&&!tgBase&&!cloudBase)return null;
@@ -234,7 +235,7 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
   const shopeeSecret=String(process.env.SHOPEE_APP_SECRET||'').trim()||await db.getSecret('shopee_app_secret').catch(()=>null)||'';
   const amzTag=String(process.env.AMAZON_PARTNER_TAG||'').trim()||await db.getSecret('amazon_tag').catch(()=>null)||'';
   const amzAccess=String(process.env.AMAZON_ACCESS_KEY||'').trim()||await db.getSecret('amazon_access').catch(()=>null)||'';
-  const amzSecret=String(process.env.AMAZON_SECRET_KEY||'').trim()||await db.getSecret('amazon_secret').catch(()=>null)||'';
+  const amzSecret=String(process.env.AMAZON_SECRET_KEY||'').trim()||'';
   res.json(integrationsStatus({SHOPEE_APP_ID:shopeeAppId,SHOPEE_APP_SECRET:shopeeSecret,AMAZON_PARTNER_TAG:amzTag,AMAZON_ACCESS_KEY:amzAccess,AMAZON_SECRET_KEY:amzSecret},offers));
  });
  app.post('/api/integrations/secret',async(req,res)=>{

@@ -12,9 +12,25 @@ async function api(path: string, method = 'GET', body?: unknown) {
 const HELP: Record<string, {about: string; ready: string; steps: string[]}> = {
   'Shopee': {about: 'Traz dados exatos do produto e o seu link com tracking.', ready: 'Já funciona sem chave: puxe seus produtos e use o seu link.', steps: ['Com chave: seus produtos importam com o link de afiliado pronto.', 'Sem chave: o app tenta as páginas da loja e preenche o que conseguir.', 'Para tudo exato: cole suas chaves abaixo e clique em Testar.']},
   'Amazon': {about: 'Confere sua tag de afiliado nas ofertas.', ready: 'Sem chave, apenas confere se o seu link tem sua tag.', steps: ['Sem chave: clico em Testar e vejo se sua tag está nos seus links.', 'Com chave completa: confirmo o produto direto na Amazon.', 'Para validar tudo: cole suas chaves abaixo.']},
-  'Mercado Livre': {about: 'Testa seus anúncios e, com a conta conectada, publica ofertas no seu perfil.', ready: 'Sem chaves, só confere se o anúncio existe.', steps: ['Cadastre suas ofertas com o link do anúncio (contendo MLB123…).', 'Clique em Testar.', 'Para publicar: crie o app, conecte a conta e use Anunciar na oferta.']},
+  'Mercado Livre': {about: 'Confere seus anúncios; com a conta conectada, publica ofertas no seu perfil.', ready: 'Sem chaves, só confere se o anúncio existe.', steps: ['Cole suas duas chaves do app aqui embaixo.', 'Depois clique em Conectar conta e autorize.', 'Use Anunciar em cada oferta.']},
   'TikTok': {about: 'Pega título e foto de vídeos. Preço você escreve.', ready: 'Sem chaves, testa com suas ofertas.', steps: ['Prefira links de vídeo (vt.tiktok.com).', 'Clique em Testar.']},
   'Kwai': {about: 'Você escreve título, preço e link e compartilha.', ready: 'Não usa chave: comece a divulgar agora.', steps: ['Cadastre a oferta com seu link.', 'Use as Sugestões e a Prévia para copiar e enviar.']}
+};
+
+const FIELDS: Record<string, {name: string; key: string; placeholder: string}[]> = {
+  'Shopee': [
+    {name: 'App ID', key: 'shopee_app_id', placeholder: 'ex: 123456'},
+    {name: 'App Secret', key: 'shopee_app_secret', placeholder: 'cole aqui'}
+  ],
+  'Amazon': [
+    {name: 'Access Key', key: 'amazon_access', placeholder: 'cole aqui'},
+    {name: 'Secret Key', key: 'amazon_secret', placeholder: 'cole aqui'}
+  ],
+  'Mercado Livre': [
+    {name: 'App ID', key: 'ml_app_id', placeholder: 'ex: 123456'},
+    {name: 'App Secret', key: 'ml_app_secret', placeholder: 'cole aqui'}
+  ],
+  'Telegram': [{name: 'Token do bot', key: 'telegram_token', placeholder: 'ex: 123:ABC...'}]
 };
 
 export function PlatformPanel({platform}: {platform: string}) {
@@ -25,18 +41,6 @@ export function PlatformPanel({platform}: {platform: string}) {
   const [busy, setBusy] = useState(false);
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const help = HELP[platform] || {about: '', ready: '', steps: []};
-  const FIELDS: Record<string, {name: string; key: string; placeholder: string; locked?: boolean}[]> = {
-    'Shopee': [
-      {name: 'App ID', key: 'shopee_app_id', placeholder: 'ex: 123456'},
-      {name: 'App Secret', key: 'shopee_app_secret', placeholder: 'cole aqui'}
-    ],
-    'Amazon': [
-      {name: 'Partner Tag', key: 'amazon_tag', placeholder: 'ex: minha-tag-20', locked: true},
-      {name: 'Access Key', key: 'amazon_access', placeholder: 'cole aqui'},
-      {name: 'Secret Key', key: 'amazon_secret', placeholder: 'cole aqui'}
-    ],
-    'Telegram': [{name: 'Token do bot', key: 'telegram_token', placeholder: 'ex: 123:ABC...'}]
-  };
   const fields = FIELDS[platform] || [];
 
   const load = useCallback(async () => {
@@ -45,7 +49,7 @@ export function PlatformPanel({platform}: {platform: string}) {
     if (platform === 'Mercado Livre') {
       try { setMl(await api('/ml/status')); } catch { setMl(null); }
     }
-    if (platform === 'Telegram') { /* opcional: painel próprio cuida do status */ }  }, [platform]);
+  }, [platform]);
 
   useEffect(() => { load().catch(e => setError((e as Error).message)); }, [load]);
 
@@ -64,10 +68,30 @@ export function PlatformPanel({platform}: {platform: string}) {
         </div>
       )}
       <ol className="list-decimal space-y-1 pl-5 text-sm leading-7">{help.steps.map((s, i) => <li key={i}>{s}</li>)}</ol>
+      {fields.length > 0 && (
+        <div className="space-y-3 rounded-lg border border-[var(--border)] p-4">
+          <h3 className="text-sm font-semibold">Suas chaves (cole aqui)</h3>
+          {fields.map(f => (
+            <label key={f.key} className="flex flex-col gap-2 text-xs font-semibold">
+              {f.name}
+              <input aria-label={f.name} type="password" autoComplete="off" placeholder={f.placeholder} className="w-full rounded-md border border-[var(--border)] bg-[var(--white)] px-3 py-2.5 text-sm" value={secrets[f.key] || ''} onChange={e => setSecrets(s => ({...s, [f.key]: e.target.value}))}/>
+            </label>
+          ))}
+          <div className="flex flex-wrap gap-2">
+            <button disabled={busy} className={btn} onClick={() => {
+              setBusy(true); setError('');
+              Promise.all(fields.filter(f => secrets[f.key]?.trim()).map(f => api('/integrations/secret', 'POST', {key: f.key, value: secrets[f.key].trim()})))
+                .then(() => { setSecrets({}); void load(); })
+                .catch(e => setError(e instanceof Error ? e.message : 'Falha.'))
+                .finally(() => setBusy(false));
+            }}>Salvar</button>
+          </div>
+        </div>
+      )}
       {platform === 'Mercado Livre' && ml && (
         <div className="space-y-2 rounded-lg border border-[var(--border)] p-4">
           <p className="text-sm">{ml.connected ? 'Conta conectada. Pronto para publicar.' : 'Para publicar, conecte sua conta:'}</p>
-          <p className={breakable(ml)}>{ml.redirectUri || ''}</p>
+          <p className="break-all rounded bg-[var(--white)] px-2 py-1 font-mono text-[11px]">{ml.redirectUri}</p>
           <div className="flex flex-wrap gap-2">
             {!ml.connected && (
               <button disabled={busy} className={btn} onClick={() => {
@@ -76,27 +100,6 @@ export function PlatformPanel({platform}: {platform: string}) {
               }}><Link2 size={14}/>Conectar conta</button>
             )}
             {ml.connected && <p className="text-xs font-semibold text-[var(--green)]"><Check size={14} className="mr-1 inline"/>Conectada</p>}
-          </div>
-        </div>
-      )}
-      {fields.length > 0 && (
-        <div className="space-y-3 rounded-lg border border-[var(--border)] p-4">
-          <h3 className="text-sm font-semibold">Suas chaves</h3>
-          {fields.map(f => (
-            <label key={f.key} className="flex flex-col gap-2 text-xs font-semibold">
-              {f.name}
-              {f.locked
-                ? <input aria-label={f.name} className="w-full rounded-md border border-dashed border-[var(--border)] bg-[var(--soft)] px-3 py-2.5 text-sm" value="Somente no servidor" readOnly disabled/>
-                : <input aria-label={f.name} type="password" autoComplete="off" placeholder={f.placeholder} className="w-full rounded-md border border-[var(--border)] bg-[var(--white)] px-3 py-2.5 text-sm" value={secrets[f.key] || ''} onChange={e => setSecrets(s => ({...s, [f.key]: e.target.value}))}/>}
-            </label>
-          ))}
-          <div className="flex flex-wrap gap-2">
-            <button disabled={busy} className={btn} onClick={() => {
-              setBusy(true); setError('');
-              const jobs = fields.filter(f => !f.locked && secrets[f.key]?.trim()).map(f => api('/integrations/secret', 'POST', {key: f.key, value: secrets[f.key].trim()}));
-              Promise.all(jobs).then(() => { setSecrets({}); void load(); }).catch(e => setError(e instanceof Error ? e.message : 'Falha.')).finally(() => setBusy(false));
-            }}>Salvar</button>
-            <button disabled={busy} className={btn} onClick={() => void load()}>Ler chaves</button>
           </div>
         </div>
       )}
@@ -117,11 +120,7 @@ export function PlatformPanel({platform}: {platform: string}) {
         }}><FlaskConical size={14}/>{busy ? 'Testando…' : 'Testar'}</button>
         <button disabled={busy} className={btn} onClick={() => void load()}><RefreshCw size={14}/>Atualizar</button>
       </div>
-      <p className={muted}><Plug size={13} className="mr-1 inline"/>Chaves ficam só no servidor. A página nunca as mostra.</p>
+      <p className={muted}><Plug size={13} className="mr-1 inline"/>Chaves ficam salvas só no servidor deste app. A página nunca as mostra de volta.</p>
     </div>
   );
-}
-
-function breakable(ml: any) {
-  return 'break-all rounded bg-[var(--white)] px-2 py-1 font-mono text-[11px]';
 }
