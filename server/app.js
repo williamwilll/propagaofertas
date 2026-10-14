@@ -14,6 +14,7 @@ import {ProductError} from './product-fetch.js';
 import {verifySignature,parseWebhookPayload,isStale,processDueQueue,createGraphSender,enqueueFlowSends} from './whatsapp.js';
 import {createBaileysProvider} from './whatsapp-baileys.js';
 import {PLATFORMS,integrationsStatus,testPlatform} from './affiliates.js';
+import {telegramDestino,telegramGetChat,telegramGetMe,telegramTest,createTelegramSender} from './telegram.js';
 import {composeOffer} from '../shared/workflow.js';
 import {allowedImageUrl,imageDomains} from '../shared/product-policy.js';
 
@@ -106,7 +107,23 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
   try{if(baileys.status().connected)groups=await baileys.listGroups();}catch{groups=[];}
   const whatsapp=!!connection?.verified||baileysConnected();
   const offers=await db.list('offers',1).catch(()=>[]);
-  return {whatsapp,affiliate:offers.length>0,permissions:flow?destinationsVerified(flow,groups):false};
+  const all=flow?(flow.destinations||[]).map(d=>String(d||'').trim()).filter(Boolean):[];
+  const tgDests=all.filter(d=>telegramDestino(d));
+  const waDests=all.filter(d=>!telegramDestino(d));
+  const tgToken=String(process.env.TELEGRAM_BOT_TOKEN||'').trim();
+  const tgFetch=options.telegramFetch||fetch;
+  let tgOk=true;
+  if(tgDests.length){
+   if(!tgToken||tgDests.length>20)tgOk=false;
+   else{
+    const checks=await Promise.all(tgDests.map(async d=>{
+     try{await telegramGetChat(tgToken,d,{fetchImpl:tgFetch,timeoutMs:8000});return true;}catch{return false;}
+    }));
+    tgOk=checks.every(Boolean);
+   }
+  }
+  const waOk=waDests.length?destinationsVerified({...flow,destinations:waDests},groups):true;
+  return {whatsapp,affiliate:offers.length>0,permissions:all.length>0&&waOk&&tgOk};
  }
  function baileysConnected(){try{return baileys.status().connected;}catch{return false;}}
  async function resolveSender(){
@@ -114,20 +131,28 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
   let groups=[];
   if(bst.connected){try{groups=await baileys.listGroups();}catch{groups=[];}}
   const useBaileys=bst.connected;
+  const tgToken=String(process.env.TELEGRAM_BOT_TOKEN||'').trim();
+  const tgBase=tgToken?createTelegramSender({token:tgToken,fetchImpl:options.telegramFetch||fetch}):(options.telegramSender||null);
   const cloudBase=options.whatsappSender||(cloudConfigured?createGraphSender({token:config.whatsappToken,phoneNumberId:config.whatsappPhoneNumberId}):null);
-  if(!useBaileys&&!cloudBase)return null;
+  if(!useBaileys&&!tgBase&&!cloudBase)return null;
   return async job=>{
    let offer=job.offer,text=job.text;
    if(!text&&job.offer_id){
     try{const found=await db.get('offers',job.offer_id);if(found){offer=found;text=composeOffer(found);}}catch{}
    }
    if(!text)throw new Error('Oferta do envio não encontrada.');
+   const tgId=telegramDestino(job.destino);
+   if(tgId){
+    if(!tgBase)throw new Error('Telegram não configurado. Defina TELEGRAM_BOT_TOKEN no servidor.');
+    return tgBase({...job,destino:tgId,text,offer});
+   }
    if(useBaileys){
     const want=String(job.destino||'').trim();
     const g=groups.find(x=>x.id===want||normName(x.name)===normName(want));
     if(!g)throw new Error(`Grupo "${want}" não está no WhatsApp conectado.`);
     return baileys.sendJob({...job,destino:g.id,text,offer});
    }
+   if(!cloudBase)throw new Error('Nenhum provedor conectado. Pareie o WhatsApp (QR) ou configure a Cloud API.');
    if(/^\d{7,15}$/.test(String(job.destino||'').replace(/\D/g,''))&&String(job.destino).replace(/\D/g,'').length>=7){
     return cloudBase({...job,destino:'+'+String(job.destino).replace(/\D/g,''),text,offer});
    }
@@ -225,8 +250,22 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
  });
  app.post('/api/queue/process',async(_req,res)=>{
   const sender=await resolveSender();
-  if(!sender)return res.status(409).json({error:'Nenhum provedor conectado. Pareie o WhatsApp (QR) ou configure a Cloud API.'});
+  if(!sender)return res.status(409).json({error:'Nenhum provedor conectado. Pareie o WhatsApp (QR), configure a Cloud API ou o Telegram.'});
   res.json(await processDueQueue(db,sender,{now:new Date().toISOString(),limit:10}));
+ });
+ app.get('/api/telegram/status',async(_req,res)=>{
+  const token=String(process.env.TELEGRAM_BOT_TOKEN||'').trim();
+  if(!token)return res.json({configured:false});
+  try{res.json({configured:true,...(await telegramGetMe(token,{fetchImpl:options.telegramFetch||fetch}))});}
+  catch(e){res.json({configured:true,error:e instanceof Error?e.message:'Falha ao falar com o Telegram.'});}
+ });
+ app.post('/api/telegram/test',async(req,res)=>{
+  const token=String(process.env.TELEGRAM_BOT_TOKEN||'').trim();
+  if(!token)return res.status(409).json({error:'Defina TELEGRAM_BOT_TOKEN no servidor.'});
+  const result=z.object({chatId:z.string().trim().min(1).max(64)}).strict().safeParse(req.body);
+  if(!result.success)return res.status(400).json({error:'Informe @canal ou o ID.'});
+  try{res.json(await telegramTest(token,result.data.chatId,{fetchImpl:options.telegramFetch||fetch}));}
+  catch(e){res.status(409).json({error:e instanceof Error?e.message:'Falha no envio.'});}
  });
  app.get('/api/whatsapp/baileys/status',async(_req,res)=>res.json(baileys.status()));
  app.get('/api/whatsapp/baileys/groups',async(_req,res)=>{
