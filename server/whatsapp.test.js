@@ -88,6 +88,26 @@ test('fila processa vencidos, conta tentativas e manda para dead após 5 falhas'
   } finally { await ctx.close(); }
 });
 
+test('ALLOW_LAN aceita host privado e rejeita público', async () => {
+  const {request: httpRequest} = await import('node:http');
+  const {createSqliteStore} = await import('./store.js');
+  const store = createSqliteStore(':memory:');
+  const {app, ready} = createApp(':memory:', {allowLan: true, store});
+  await ready;
+  const server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
+  const get = (host) => new Promise((resolve, reject) => {
+    const req = httpRequest({hostname: '127.0.0.1', port: server.address().port, path: '/api/auth/session', method: 'GET', headers: {Host: host}}, res => {
+      res.resume(); res.on('end', () => resolve(res.statusCode));
+    });
+    req.on('error', reject); req.end();
+  });
+  try {
+    assert.equal(await get('192.168.1.50:3001'), 200);
+    assert.equal(await get('10.0.0.5'), 200);
+    assert.equal(await get('203.0.113.9'), 403);
+    assert.equal(await get('evil.example'), 403);
+  } finally { await new Promise(r => server.close(r)); await store.close(); }
+});
 test('status exige login em produção (com host/https/origem válidos)', async () => {
   const {request: httpRequest} = await import('node:http');
   const {createSqliteStore} = await import('./store.js');

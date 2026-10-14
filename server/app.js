@@ -8,6 +8,7 @@ import {createSqliteStore,createPostgresStore} from './store.js';
 import {installAuth} from './auth.js';
 import {validateProduction} from './config.js';
 import {rateLimit} from 'express-rate-limit';
+import ipaddr from 'ipaddr.js';
 import {importProduct} from './product-import.js';
 import {ProductError} from './product-fetch.js';
 import {verifySignature,parseWebhookPayload,isStale,processDueQueue,createGraphSender,enqueueFlowSends} from './whatsapp.js';
@@ -48,13 +49,19 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
  const origin=config.production?new URL(config.appOrigin).origin:null;
  const allowedOrigins=origin?[origin]:['http://localhost:5173','http://127.0.0.1:5173','http://localhost:3001','http://127.0.0.1:3001'];
  app.use((req,res,next)=>{
-  const host=req.headers.host?.toLowerCase();
-  const hostAllowed=config.production?host===new URL(origin).host:['localhost','127.0.0.1'].includes(host?.split(':')[0]);
+  const host=(req.headers.host?.toLowerCase()||'').split(':').slice(0,-1).join(':').replace(/^\[|\]$/g,'')||(req.headers.host?.toLowerCase()||'');
+  const localHost=['localhost','127.0.0.1','::1'].includes(host);
+  let lanHost=false;
+  if(config.allowLan&&!localHost){
+   try{lanHost=['private','loopback','linkLocal'].includes(ipaddr.process(host).range());}catch{lanHost=false;}
+  }
+  const hostAllowed=config.production?req.headers.host?.toLowerCase()===new URL(origin).host:(localHost||lanHost);
   if(!hostAllowed)return res.status(403).json({error:'Host não autorizado.'});
   if(config.production&&!req.secure)return res.status(400).json({error:'Use HTTPS para acessar o aplicativo.'});
   const requestOrigin=req.headers.origin;
+  const lanOrigin=config.allowLan&&!!requestOrigin&&/^http:\/\/(localhost|127\.0\.0\.1|\[::1\]|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/i.test(requestOrigin);
   const mutating=!['GET','HEAD','OPTIONS'].includes(req.method);
-  if((requestOrigin&&!allowedOrigins.includes(requestOrigin))||(config.production&&mutating&&!requestOrigin))return res.status(403).json({error:'Origem não autorizada.'});
+  if((requestOrigin&&!allowedOrigins.includes(requestOrigin)&&!lanOrigin)||(config.production&&mutating&&!requestOrigin))return res.status(403).json({error:'Origem não autorizada.'});
   next();
  });
  app.use('/api',(_req,res,next)=>{res.setHeader('Cache-Control','no-store');next();});
