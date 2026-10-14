@@ -1,5 +1,5 @@
 import {useEffect,useState,type ReactNode} from 'react';
-import {LockKeyhole,MessageSquare,ArrowRight,ShieldCheck} from 'lucide-react';
+import {LockKeyhole,MessageSquare,ArrowRight,ShieldCheck,Eye,EyeOff} from 'lucide-react';
 
 export interface Session {authenticated:boolean;mode:'local'|'production';email:string|null;storage:'sqlite'|'postgres'}
 interface AuthGateProps {children:(session:Session,logout:()=>Promise<void>)=>ReactNode}
@@ -11,6 +11,7 @@ export function AuthGate({children}:AuthGateProps){
  const [error,setError]=useState('');
  const [email,setEmail]=useState('');
  const [password,setPassword]=useState('');
+ const [showPassword,setShowPassword]=useState(false);
  const check=async()=>{
   setLoading(true);setError('');
   try{const response=await fetch('/api/auth/session',{cache:'no-store'});if(!response.ok)throw new Error('Não foi possível verificar o acesso. Tente novamente.');setSession(await response.json());}
@@ -41,7 +42,7 @@ export function AuthGate({children}:AuthGateProps){
     finally{setBusy(false);}
    }}>
     <label className="flex flex-col gap-2 text-xs font-semibold">E-mail do administrador<input autoFocus type="email" required maxLength={254} autoComplete="username" className={control} value={email} onChange={e=>setEmail(e.target.value)}/></label>
-    <label className="flex flex-col gap-2 text-xs font-semibold">Senha<input type="password" required maxLength={256} autoComplete="current-password" className={control} value={password} onChange={e=>setPassword(e.target.value)}/></label>
+    <label className="flex flex-col gap-2 text-xs font-semibold">Senha<div className="relative"><input type={showPassword?'text':'password'} required maxLength={256} autoComplete="current-password" className={control+' pr-12'} value={password} onChange={e=>setPassword(e.target.value)}/><button type="button" onClick={()=>setShowPassword(s=>!s)} aria-label={showPassword?'Ocultar senha':'Mostrar senha'} aria-pressed={showPassword} className="absolute inset-y-0 right-0 flex items-center px-3 text-[var(--muted)] hover:text-[var(--text)]">{showPassword?<EyeOff size={18}/>:<Eye size={18}/>}</button></div></label>
     <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-md bg-[var(--green)] p-3 text-sm font-semibold text-[var(--white)] disabled:opacity-50">{busy?'Entrando…':'Entrar no PropagaOfertas'}<ArrowRight size={16}/></button>
    </form>}
    <div className="flex items-start gap-2 border-t border-[var(--border)] pt-5 text-xs leading-6 text-[var(--muted)]"><ShieldCheck size={17} className="mt-1 shrink-0"/><p>Acesso privado, sem cadastro público. O administrador configura as credenciais no servidor.</p></div>
