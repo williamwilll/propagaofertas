@@ -108,6 +108,25 @@ test('ALLOW_LAN aceita host privado e rejeita público', async () => {
     assert.equal(await get('evil.example'), 403);
   } finally { await new Promise(r => server.close(r)); await store.close(); }
 });
+test('PUBLIC_HOST libera túnel exato e mantém resto bloqueado', async () => {
+  const {request: httpRequest} = await import('node:http');
+  const {createSqliteStore} = await import('./store.js');
+  const store = createSqliteStore(':memory:');
+  const {app, ready} = createApp(':memory:', {publicHost: 'abc-123.trycloudflare.com', store});
+  await ready;
+  const server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
+  const get = (path, headers) => new Promise((resolve, reject) => {
+    const req = httpRequest({hostname: '127.0.0.1', port: server.address().port, path, method: 'GET', headers}, res => {
+      res.resume(); res.on('end', () => resolve(res.statusCode));
+    });
+    req.on('error', reject); req.end();
+  });
+  try {
+    assert.equal(await get('/api/auth/session', {Host: 'abc-123.trycloudflare.com'}), 200);
+    assert.equal(await get('/api/auth/session', {Host: 'outro.trycloudflare.com'}), 403);
+    assert.equal(await get('/api/auth/session', {Host: '127.0.0.1'}), 200);
+  } finally { await new Promise(r => server.close(r)); await store.close(); }
+});
 test('status exige login em produção (com host/https/origem válidos)', async () => {
   const {request: httpRequest} = await import('node:http');
   const {createSqliteStore} = await import('./store.js');

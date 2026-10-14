@@ -55,13 +55,14 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
   if(config.allowLan&&!localHost){
    try{lanHost=['private','loopback','linkLocal'].includes(ipaddr.process(host).range());}catch{lanHost=false;}
   }
-  const hostAllowed=config.production?req.headers.host?.toLowerCase()===new URL(origin).host:(localHost||lanHost);
+  const hostAllowed=config.production?req.headers.host?.toLowerCase()===new URL(origin).host:(localHost||lanHost||(config.publicHost&&host===config.publicHost));
   if(!hostAllowed)return res.status(403).json({error:'Host não autorizado.'});
   if(config.production&&!req.secure)return res.status(400).json({error:'Use HTTPS para acessar o aplicativo.'});
   const requestOrigin=req.headers.origin;
+  const publicOrigin=config.publicHost&&requestOrigin==='https://'+config.publicHost;
   const lanOrigin=config.allowLan&&!!requestOrigin&&/^http:\/\/(localhost|127\.0\.0\.1|\[::1\]|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/i.test(requestOrigin);
   const mutating=!['GET','HEAD','OPTIONS'].includes(req.method);
-  if((requestOrigin&&!allowedOrigins.includes(requestOrigin)&&!lanOrigin)||(config.production&&mutating&&!requestOrigin))return res.status(403).json({error:'Origem não autorizada.'});
+  if((requestOrigin&&!allowedOrigins.includes(requestOrigin)&&!lanOrigin&&!publicOrigin)||(config.production&&mutating&&!requestOrigin))return res.status(403).json({error:'Origem não autorizada.'});
   next();
  });
  app.use('/api',(_req,res,next)=>{res.setHeader('Cache-Control','no-store');next();});
