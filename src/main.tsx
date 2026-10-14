@@ -79,3 +79,4 @@ function App({session,onLogout}:{session:Session;onLogout:()=>Promise<void>}){
  </div>;
 }
 createRoot(document.getElementById('root')!).render(<React.StrictMode><AuthGate>{(session,logout)=><App session={session} onLogout={logout}/>}</AuthGate></React.StrictMode>);
+if('serviceWorker' in navigator)window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js').catch(()=>{});});

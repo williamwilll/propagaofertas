@@ -247,7 +247,7 @@ export function createApp(dbPath=resolve('data/ofertazap.sqlite'),options={}){
   catch(e){res.status(409).json({error:e instanceof Error?e.message:'Falha ao gerar código.'});}
  });
  app.use('/api',(_req,res)=>res.status(404).json({error:'Operação não encontrada.'}));
- app.use(express.static(resolve('dist'),{setHeaders(res,path){if(path.endsWith('index.html'))res.setHeader('Cache-Control','no-cache');}}));
+ app.use(express.static(resolve('dist'),{setHeaders(res,path){const base=path.split(/[\\/]/).pop();if(base==='index.html'||base==='sw.js'||base.endsWith('.webmanifest'))res.setHeader('Cache-Control','no-cache');}}));
  app.use((error,_req,res,_next)=>{
   if(error.status===400||error.status===413)return res.status(error.status).json({error:'Requisição inválida ou muito grande.'});
   // Never log connection strings, request bodies or credentials.
