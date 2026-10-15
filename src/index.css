@@ -1,3 +1,24 @@
 @import "tailwindcss";
-:root{--bg:#F5F7F8;--sidebar:#102F26;--active:#1B3B30;--green:#16845B;--text:#183D30;--muted:#708079;--border:#E3E9E6;--white:#FFFFFF;--soft:#EAF5EE;--warning:#FFF4E5;--amber:#89551B;--danger:#AD3939;}
+:root{--bg:#F5F7F8;--sidebar:#102F26;--active:#1B3B30;--green:#16845B;--green-2:#1FA375;--text:#183D30;--muted:#708079;--border:#E3E9E6;--white:#FFFFFF;--soft:#EAF5EE;--warning:#FFF4E5;--amber:#89551B;--danger:#AD3939;--radius:14px;}
 @layer base{body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);}button,a,input,select,textarea{outline-offset:4px;}button:not(:disabled){cursor:pointer;}button:disabled{cursor:not-allowed;}}
+@layer components{
+ .card{border-radius:var(--radius);border:1px solid var(--border);background:var(--white);box-shadow:0 1px 2px rgba(16,47,38,.04);}
+ .card-hover{transition:box-shadow .25s ease,border-color .25s ease,transform .25s ease;}
+ .card-hover:hover{box-shadow:0 8px 24px rgba(16,47,38,.08);border-color:#D6E3DC;transform:translateY(-1px);}
+ .btn{border-radius:10px;transition:all .2s ease;}
+ .btn-primary{background:linear-gradient(180deg,#1FA375,#16845B);border-color:#16845B;color:#fff;box-shadow:0 1px 2px rgba(22,132,91,.25),inset 0 1px 0 rgba(255,255,255,.2);}
+ .btn-primary:hover{filter:brightness(1.05);box-shadow:0 4px 14px rgba(22,132,91,.3);}
+ .btn-primary:active{transform:translateY(1px);}
+ .fade-in{animation:fadeIn .35s ease both;}
+ .slide-up{animation:slideUp .4s cubic-bezier(.16,1,.3,1) both;}
+ .slide-down{animation:slideDown .25s ease both;}
+ .fade-in-slow{animation:fadeIn .5s ease both;}
+ .pop{animation:pop .3s cubic-bezier(.16,1,.3,1) both;}
+}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes modalIn{from{opacity:0;transform:translateY(18px) scale(.98)}to{opacity:1;transform:none}}
+dialog.modal-anim{animation:modalIn .28s cubic-bezier(.16,1,.3,1) both}
+@keyframes slideUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes slideDown{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
+@keyframes pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){.fade-in,.slide-up,.slide-down,.fade-in-slow,.pop{animation:none}}

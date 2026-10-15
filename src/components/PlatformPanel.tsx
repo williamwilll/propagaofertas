@@ -53,12 +53,12 @@ export function PlatformPanel({platform}: {platform: string}) {
 
   useEffect(() => { load().catch(e => setError((e as Error).message)); }, [load]);
 
-  const btn = 'inline-flex items-center justify-center gap-2 rounded-md border border-[var(--border)] bg-[var(--white)] px-4 py-2.5 text-xs font-semibold transition hover:bg-[var(--soft)] disabled:opacity-45';
-  const primary = btn + ' !bg-[var(--green)] !text-[var(--white)] !border-[var(--green)] hover:opacity-90';
+  const btn = 'inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--white)] px-4 py-2.5 text-xs font-semibold transition-all hover:bg-[var(--soft)] hover:shadow-sm disabled:opacity-45 active:scale-[.98]';
+  const primary = btn + ' btn-primary';
   const muted = 'text-xs leading-6 text-[var(--muted)]';
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 slide-up">
       <p className="text-sm leading-7">{help.about}</p>
       {error && <p role="alert" className="rounded-lg bg-[var(--warning)] p-3 text-xs leading-6 text-[var(--amber)]">{error}</p>}
       {status && (

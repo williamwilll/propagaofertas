@@ -43,7 +43,8 @@ export function BaileysPanel() {
     try { await fn(); setInfo(ok); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
 
-  const btn = 'inline-flex items-center justify-center gap-2 rounded-md border border-[var(--border)] bg-[var(--white)] px-4 py-2.5 text-xs font-semibold transition hover:bg-[var(--soft)] disabled:opacity-45';
+  const btn = 'inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--white)] px-4 py-2.5 text-xs font-semibold transition-all hover:bg-[var(--soft)] hover:shadow-sm disabled:opacity-45 active:scale-[.98]';
+  const primary = btn + ' btn-primary';
   const muted = 'text-xs leading-6 text-[var(--muted)]';
 
   return (

@@ -21,7 +21,7 @@ type State={flows:Flow[];offers:Offer[]};
 const blankFlow=():FlowData=>({name:'',account:'',source:'',sourceConsent:false,platform:'Amazon',distributor:'',destinations:[],destinationConsent:false,days:[1,2,3,4,5],start:'09:00',end:'18:00',interval:10,dailyLimit:20,mode:'manual'});
 const button='inline-flex items-center justify-center gap-2 rounded-md border border-[var(--border)] bg-[var(--white)] px-4 py-2.5 text-xs font-semibold transition hover:bg-[var(--soft)] disabled:opacity-45';
 const primary=button+' !bg-[var(--green)] !text-[var(--white)] !border-[var(--green)] hover:opacity-90';
-const card='rounded-[10px] border border-[var(--border)] bg-[var(--white)] p-6';
+const card='rounded-[10px] border border-[var(--border)] bg-[var(--white)] p-6 card-hover';
 const muted='text-xs leading-6 text-[var(--muted)]';
 const control='w-full rounded-md border border-[var(--border)] bg-[var(--white)] px-3 py-2.5 text-sm focus:border-[var(--green)]';
 const steps=['Conta','Origem','Seus links','Destinos','Horários','Revisão'];
@@ -52,7 +52,7 @@ function App({session,onLogout}:{session:Session;onLogout:()=>Promise<void>}){
   </aside>
   <div className="min-w-0 flex-1 lg:ml-56">
    <header className="flex min-h-[76px] flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--white)] px-5 lg:px-8"><span className={muted}>Workspace / {page}{wizard?' / Novo fluxo / '+steps[step]:''}</span><div className="flex items-center gap-3">{session.mode==='production'&&<button disabled={busy} className={button} onClick={()=>{if(confirm('Sair do workspace? Alterações não salvas serão perdidas.'))void run(onLogout);}}>Sair</button>}</div></header>
-   <main className="mx-auto max-w-[1500px] space-y-6 p-5 lg:p-8">
+   <main className="mx-auto max-w-[1500px] space-y-6 p-5 lg:p-8 fade-in">
     <div className="flex flex-wrap items-start justify-between gap-4"><div><h1 className="text-[28px] font-bold tracking-tight">{wizard?titles[step]:page==='Minhas ofertas'?'Sua central de ofertas.':page==='Conexões'?'Suas plataformas, em um só lugar.':'Seu centro de distribuição'}</h1><p className={muted}>{wizard?'Configure e salve seu rascunho. Integrações serão verificadas antes de qualquer envio.':page==='Minhas ofertas'?'Cadastre produtos e prepare suas mensagens com seus links.':page==='Conexões'?'Acesso oficial, permissões e suporte precisam ser confirmados.':'Acompanhe suas ofertas e organize seus fluxos de distribuição.'}</p></div>{wizard?<button disabled={busy} className={button} onClick={()=>void saveFlow()}>Salvar e sair</button>:page==='Minhas ofertas'?<button className={primary} onClick={()=>{setOffer({title:'',price:0,url:'',description:''});setOfferId(undefined);}}><Plus size={15}/>Nova oferta</button>:page!=='Conexões'?<button className={primary} onClick={()=>startFlow()}><Plus size={15}/>Novo fluxo</button>:null}</div>
     {error&&<div role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-[var(--danger)] p-4 text-sm text-[var(--danger)]">{error}<button onClick={()=>setError('')} aria-label="Fechar erro"><X size={17}/></button></div>}
     {notice&&<div role="status" className="rounded-lg bg-[var(--soft)] p-4 text-sm">{notice}</div>}

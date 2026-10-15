@@ -17,7 +17,7 @@ export function Suggestions({offer, onClose}: {offer: OfferData & {id: string}; 
     } catch { setCopied(''); }
   };
   const muted = 'text-xs leading-6 text-[var(--muted)]';
-  const btn = 'inline-flex shrink-0 items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--white)] px-3 py-1.5 text-xs font-semibold hover:bg-[var(--soft)]';
+  const btn = 'inline-flex shrink-0 items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--white)] px-3 py-1.5 text-xs font-semibold transition-all hover:bg-[var(--soft)] hover:shadow-sm active:scale-[.97]';
   return (
     <Modal labelledBy="suggest-title" onClose={onClose}>
       <div className="w-full space-y-6 p-5 sm:p-7">
